@@ -2019,7 +2019,28 @@
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: name, script: gameScript, date: todayStr(0), wpm: wpm, acc: acc })
-    }).then(function () { fetchLeaderboard(); }).catch(function () {});
+    }).then(function () {
+      try {
+        var dKey = dailyChallengeKey();
+        var rec = JSON.parse(localStorage.getItem(dKey) || 'null');
+        if (rec) { rec.submitted = true; localStorage.setItem(dKey, JSON.stringify(rec)); }
+      } catch (e) {}
+      fetchLeaderboard();
+    }).catch(function () {});
+  }
+
+  // If someone finishes today's challenge before typing a name (or the
+  // POST above failed, e.g. Render was asleep), this catches it up the
+  // next time a name becomes available or the panel is shown again.
+  function trySubmitPendingDaily() {
+    if (!API_BASE) return;
+    var name = getPlayerName();
+    if (!name) return;
+    try {
+      var dKey = dailyChallengeKey();
+      var rec = JSON.parse(localStorage.getItem(dKey) || 'null');
+      if (rec && !rec.submitted) submitDailyScore(rec.wpm, rec.acc);
+    } catch (e) {}
   }
 
   function fetchLeaderboard() {
@@ -2087,7 +2108,7 @@
         ? ("Today's challenge already completed: " + existing.wpm + ' wpm, ' + existing.acc + '% acc.')
         : "Today's challenge — one official attempt, same text for everyone.";
       if (nameRow) nameRow.classList.toggle('hidden', !API_BASE);
-      if (API_BASE) fetchLeaderboard();
+      if (API_BASE) { trySubmitPendingDaily(); fetchLeaderboard(); }
     }
   }
 
@@ -3232,6 +3253,7 @@
     playerNameInput.value = getPlayerName();
     playerNameInput.addEventListener('change', function () {
       setPlayerName(playerNameInput.value.trim().slice(0, 20));
+      trySubmitPendingDaily();
       fetchLeaderboard();
     });
   }
