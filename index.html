@@ -42,6 +42,16 @@
     transition: background-color 0.2s, color 0.2s, border-color 0.2s;
   }
 
+  .custom-color-label {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--muted);
+    background: var(--surface-2); border-radius: 6px; padding: 4px 8px 4px 10px; cursor: pointer;
+  }
+  .custom-color-label input[type="color"] {
+    width: 22px; height: 22px; padding: 0; border: 1px solid var(--muted-2); border-radius: 4px;
+    background: none; cursor: pointer;
+  }
+
   * { box-sizing: border-box; }
 
   html, body {
@@ -277,6 +287,11 @@
   #leaderboard-wrap .lb-header .lb-acc { width: 60px; text-align: right; }
   #leaderboard-wrap .lb-row { font-size: 13px; padding: 5px 0; }
   #leaderboard-full-list { min-height: 40px; }
+  .lb-row-tagged { flex-wrap: wrap; align-items: baseline; }
+  .lb-tag {
+    display: block; font-size: 10px; color: var(--muted); font-weight: normal;
+    margin-top: 1px; letter-spacing: 0.02em;
+  }
 
   @media (max-width: 640px) {
     .insights-grid { grid-template-columns: 1fr; }
@@ -768,6 +783,11 @@
       <div class="durations" role="group" aria-label="Color theme">
         <button class="key active" data-theme="dark" data-i18n="themeDark">dark</button>
         <button class="key" data-theme="light" data-i18n="themeLight">light</button>
+        <button class="key" data-theme="custom" data-i18n="themeCustom">custom</button>
+      </div>
+      <div class="durations hidden" role="group" aria-label="Custom theme colors" id="custom-theme-row">
+        <label class="custom-color-label"><span data-i18n="customThemeBg">background</span><input type="color" id="custom-bg-input" value="#1b1d22"></label>
+        <label class="custom-color-label"><span data-i18n="customThemeAccent">accent</span><input type="color" id="custom-accent-input" value="#e8a33d"></label>
       </div>
       <button class="key" id="sound-toggle" data-i18n="soundOff">sound: off</button>
       <button class="key" id="blind-toggle" data-i18n="blindOff">blind mode: off</button>
@@ -877,6 +897,7 @@
         <button class="key active" data-lbboard="daily" data-i18n="gameDaily">daily challenge</button>
         <button class="key" data-lbboard="speedtest" data-i18n="lbBoardSpeedtest">speed test</button>
         <button class="key" data-lbboard="ghost" data-i18n="gameGhost">ghost race</button>
+        <button class="key" data-lbboard="all" data-i18n="lbBoardAll">all</button>
       </div>
       <div class="durations" role="group" aria-label="Leaderboard scope">
         <button class="key active" data-lbscope="today" data-i18n="lbScopeToday">today</button>
@@ -1334,6 +1355,9 @@
     scriptNepali: { en: "Nepali", ne: "नेपाली" },
     themeDark: { en: "dark", ne: "डार्क" },
     themeLight: { en: "light", ne: "लाइट" },
+    themeCustom: { en: "custom", ne: "आफ्नै" },
+    customThemeBg: { en: "background", ne: "पृष्ठभूमि" },
+    customThemeAccent: { en: "accent", ne: "मुख्य रंग" },
     topicMixed: { en: "all topics", ne: "सबै विषयहरू" },
     topicEcology: { en: "Ecology & biodiversity", ne: "पारिस्थितिकी र जैविक विविधता" },
     topicEarth: { en: "Earth science & geology", ne: "पृथ्वी विज्ञान र भूविज्ञान" },
@@ -1392,6 +1416,7 @@
     leaderboardEmpty: { en: "No scores yet today for this language and length — be the first!", ne: "यो भाषा र लम्बाइका लागि आज अझै कुनै स्कोर छैन — पहिलो बन्नुहोस्!" },
     leaderboardOffline: { en: "The shared leaderboard isn't set up yet.", ne: "साझा लिडरबोर्ड अझै सेटअप गरिएको छैन।" },
     lbBoardSpeedtest: { en: "speed test", ne: "गति परीक्षण" },
+    lbBoardAll: { en: "all", ne: "सबै" },
     lbScopeToday: { en: "today", ne: "आज" },
     lbScopeAllTime: { en: "all-time", ne: "सबैभन्दा राम्रो" },
     tabInsights: { en: "insights", ne: "अन्तर्दृष्टि" },
@@ -2195,6 +2220,16 @@
     }).catch(function () { cb([]); });
   }
 
+  function fetchCombinedLeaderboard(script, scope, limit, cb) {
+    if (!API_BASE) { cb([]); return; }
+    var url = API_BASE + '/api/leaderboard/combined?script=' + encodeURIComponent(script) +
+      '&scope=' + encodeURIComponent(scope) + '&limit=' + limit;
+    if (scope !== 'alltime') url += '&date=' + encodeURIComponent(todayStr(0));
+    fetch(url).then(function (r) { return r.json(); }).then(function (rows) {
+      cb(rows || []);
+    }).catch(function () { cb([]); });
+  }
+
   function renderLbRows(rows, me) {
     return rows.map(function (row, i) {
       return '<div class="lb-row' + (row.name === me ? ' lb-me' : '') + '">' +
@@ -2309,14 +2344,27 @@
       return;
     }
     offlineEl.classList.add('hidden');
+    if (lbBoard === 'all') {
+      fetchCombinedLeaderboard(lbScript, lbScope, 50, function (rows) {
+        renderFullLeaderboard(rows, true);
+      });
+      return;
+    }
     var modeForFetch = lbBoard === 'ghost' ? GHOST_MODE : lbMode;
     var durationForFetch = lbBoard === 'speedtest' ? lbDuration : 0;
     fetchBoardLeaderboard(lbBoard, lbScript, modeForFetch, durationForFetch, lbScope, 50, function (rows) {
-      renderFullLeaderboard(rows);
+      renderFullLeaderboard(rows, false);
     });
   }
 
-  function renderFullLeaderboard(rows) {
+  function boardTag(row) {
+    var modeLabel = row.mode === 'words' ? t('dailyModeWords') : row.mode === 'paragraph' ? t('dailyModeParagraph') : t('dailyModeSentences');
+    if (row.board === 'daily') return t('gameDaily') + ' \u00B7 ' + modeLabel;
+    if (row.board === 'ghost') return t('gameGhost');
+    return t('lbBoardSpeedtest') + ' \u00B7 ' + modeLabel + ' \u00B7 ' + row.duration + 's';
+  }
+
+  function renderFullLeaderboard(rows, tagged) {
     var listEl = document.getElementById('leaderboard-full-list');
     var emptyEl = document.getElementById('leaderboard-empty');
     if (!listEl) return;
@@ -2328,9 +2376,12 @@
     emptyEl.classList.add('hidden');
     var me = getPlayerName();
     listEl.innerHTML = rows.map(function (row, i) {
-      return '<div class="lb-row' + (row.name === me ? ' lb-me' : '') + '">' +
+      var nameCell = tagged
+        ? '<span class="lb-name">' + row.name + '<span class="lb-tag">' + boardTag(row) + '</span></span>'
+        : '<span class="lb-name">' + row.name + '</span>';
+      return '<div class="lb-row' + (row.name === me ? ' lb-me' : '') + (tagged ? ' lb-row-tagged' : '') + '">' +
         '<span class="lb-rank">' + (i + 1) + '.</span>' +
-        '<span class="lb-name">' + row.name + '</span>' +
+        nameCell +
         '<span class="lb-wpm">' + row.wpm + '</span>' +
         '<span class="lb-acc">' + row.acc + '%</span></div>';
     }).join('');
@@ -3503,7 +3554,7 @@
     var durationRow = document.getElementById('lb-duration-row');
     if (!modeRow) return;
     var paragraphBtn = modeRow.querySelector('[data-lbmode="paragraph"]');
-    if (lbBoard === 'ghost') {
+    if (lbBoard === 'ghost' || lbBoard === 'all') {
       modeRow.classList.add('hidden');
     } else {
       modeRow.classList.remove('hidden');
@@ -3519,7 +3570,10 @@
   function updateLeaderboardTitle() {
     var titleEl = document.getElementById('leaderboard-wrap-title');
     if (!titleEl) return;
-    var boardLabel = lbBoard === 'daily' ? t('gameDaily') : (lbBoard === 'speedtest' ? t('lbBoardSpeedtest') : t('gameGhost'));
+    var boardLabel = lbBoard === 'daily' ? t('gameDaily')
+      : lbBoard === 'speedtest' ? t('lbBoardSpeedtest')
+      : lbBoard === 'ghost' ? t('gameGhost')
+      : t('lbBoardAll');
     if (lbBoard === 'speedtest') boardLabel += ' (' + lbDuration + 's)';
     var scopeLabel = lbScope === 'alltime' ? t('lbScopeAllTime') : t('lbScopeToday');
     titleEl.textContent = boardLabel + ' \u2014 ' + scopeLabel;
@@ -3825,12 +3879,84 @@
     });
   });
 
+  // ---- Custom theme: derive a full palette from just two picked colors ----
+  var CUSTOM_VARS = ['--bg', '--surface', '--surface-2', '--text', '--muted', '--muted-2',
+    '--accent', '--accent-dim', '--correct', '--error', '--error-bg', '--correct-bg'];
+
+  function hexToRgb(hex) {
+    hex = hex.replace('#', '');
+    if (hex.length === 3) hex = hex.split('').map(function (c) { return c + c; }).join('');
+    var num = parseInt(hex, 16);
+    return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+  }
+  function rgbToHex(r, g, b) {
+    return '#' + [r, g, b].map(function (v) {
+      v = Math.max(0, Math.min(255, Math.round(v)));
+      var s = v.toString(16);
+      return s.length < 2 ? '0' + s : s;
+    }).join('');
+  }
+  function mixHex(hex1, hex2, amount) {
+    var a = hexToRgb(hex1), b = hexToRgb(hex2);
+    return rgbToHex(a.r + (b.r - a.r) * amount, a.g + (b.g - a.g) * amount, a.b + (b.b - a.b) * amount);
+  }
+  function relativeLuminance(hex) {
+    var c = hexToRgb(hex);
+    var srgb = [c.r, c.g, c.b].map(function (v) {
+      v /= 255;
+      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * srgb[0] + 0.7152 * srgb[1] + 0.0722 * srgb[2];
+  }
+  function hexToRgba(hex, alpha) {
+    var c = hexToRgb(hex);
+    return 'rgba(' + c.r + ',' + c.g + ',' + c.b + ',' + alpha + ')';
+  }
+
+  function applyCustomColors(bgHex, accentHex) {
+    var isDark = relativeLuminance(bgHex) < 0.5;
+    var white = '#ffffff', black = '#000000';
+    var textHex = isDark ? mixHex(bgHex, white, 0.92) : mixHex(bgHex, black, 0.88);
+    var surfaceHex = mixHex(bgHex, isDark ? white : black, 0.05);
+    var surface2Hex = mixHex(bgHex, isDark ? white : black, 0.10);
+    var mutedHex = mixHex(bgHex, textHex, 0.45);
+    var muted2Hex = mixHex(bgHex, textHex, 0.18);
+    var correctHex = isDark ? '#7fb77e' : '#2f8f45';
+    var errorHex = isDark ? '#d9686b' : '#c94447';
+    var vars = {
+      '--bg': bgHex, '--surface': surfaceHex, '--surface-2': surface2Hex,
+      '--text': textHex, '--muted': mutedHex, '--muted-2': muted2Hex,
+      '--accent': accentHex, '--accent-dim': hexToRgba(accentHex, 0.14),
+      '--correct': correctHex, '--error': errorHex,
+      '--error-bg': hexToRgba(errorHex, isDark ? 0.16 : 0.12),
+      '--correct-bg': hexToRgba(correctHex, isDark ? 0.15 : 0.12)
+    };
+    Object.keys(vars).forEach(function (k) { document.body.style.setProperty(k, vars[k]); });
+  }
+
+  function clearCustomColors() {
+    CUSTOM_VARS.forEach(function (k) { document.body.style.removeProperty(k); });
+  }
+
+  var customBg = '#1b1d22';
+  var customAccent = '#e8a33d';
+  try { customBg = localStorage.getItem('clackpad_custom_bg') || customBg; } catch (e) {}
+  try { customAccent = localStorage.getItem('clackpad_custom_accent') || customAccent; } catch (e) {}
+
   var themeButtons = document.querySelectorAll('header .key[data-theme]');
+  var customThemeRow = document.getElementById('custom-theme-row');
   function applyTheme(themeName) {
     document.body.classList.toggle('light', themeName === 'light');
+    document.body.classList.toggle('custom', themeName === 'custom');
     themeButtons.forEach(function (b) {
       b.classList.toggle('active', b.getAttribute('data-theme') === themeName);
     });
+    if (customThemeRow) customThemeRow.classList.toggle('hidden', themeName !== 'custom');
+    if (themeName === 'custom') {
+      applyCustomColors(customBg, customAccent);
+    } else {
+      clearCustomColors();
+    }
     try { localStorage.setItem('clackpad_theme', themeName); } catch (e) {}
   }
   themeButtons.forEach(function (btn) {
@@ -3838,6 +3964,26 @@
       applyTheme(btn.getAttribute('data-theme'));
     });
   });
+
+  var customBgInput = document.getElementById('custom-bg-input');
+  var customAccentInput = document.getElementById('custom-accent-input');
+  if (customBgInput) {
+    customBgInput.value = customBg;
+    customBgInput.addEventListener('input', function () {
+      customBg = customBgInput.value;
+      try { localStorage.setItem('clackpad_custom_bg', customBg); } catch (e) {}
+      if (document.body.classList.contains('custom')) applyCustomColors(customBg, customAccent);
+    });
+  }
+  if (customAccentInput) {
+    customAccentInput.value = customAccent;
+    customAccentInput.addEventListener('input', function () {
+      customAccent = customAccentInput.value;
+      try { localStorage.setItem('clackpad_custom_accent', customAccent); } catch (e) {}
+      if (document.body.classList.contains('custom')) applyCustomColors(customBg, customAccent);
+    });
+  }
+
   var savedTheme = 'dark';
   try { savedTheme = localStorage.getItem('clackpad_theme') || 'dark'; } catch (e) {}
   applyTheme(savedTheme);
