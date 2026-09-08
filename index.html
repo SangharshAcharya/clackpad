@@ -261,8 +261,21 @@
   }
   .lb-row .lb-rank { color: var(--muted); width: 20px; }
   .lb-row .lb-name { flex: 1; }
-  .lb-row .lb-wpm { color: var(--accent); }
+  .lb-row .lb-wpm { color: var(--accent); width: 70px; text-align: right; }
+  .lb-row .lb-acc { color: var(--muted); width: 60px; text-align: right; }
   .lb-row.lb-me { color: var(--accent); }
+
+  #leaderboard-wrap .insights-card { max-width: 480px; margin: 0 auto; }
+  #leaderboard-wrap .lb-header {
+    display: flex; justify-content: space-between; gap: 10px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--muted);
+    padding: 3px 0 8px; border-bottom: 1px solid var(--muted-2); margin-bottom: 6px;
+  }
+  #leaderboard-wrap .lb-header .lb-rank { width: 20px; }
+  #leaderboard-wrap .lb-header .lb-wpm { width: 70px; text-align: right; }
+  #leaderboard-wrap .lb-header .lb-acc { width: 60px; text-align: right; }
+  #leaderboard-wrap .lb-row { font-size: 13px; padding: 5px 0; }
+  #leaderboard-full-list { min-height: 40px; }
 
   @media (max-width: 640px) {
     .insights-grid { grid-template-columns: 1fr; }
@@ -766,6 +779,7 @@
     <button class="key" data-tab="free" data-i18n="tabFree">free type</button>
     <button class="key" data-tab="lessons" data-i18n="tabLessons">lessons</button>
     <button class="key" data-tab="games" data-i18n="tabGames">games</button>
+    <button class="key" data-tab="leaderboard" data-i18n="tabLeaderboard">leaderboard</button>
     <button class="key" data-tab="insights" data-i18n="tabInsights">insights</button>
   </div>
 
@@ -841,11 +855,27 @@
         <button class="key active" data-gamescript="en" data-i18n="scriptEnglish">English</button>
         <button class="key" data-gamescript="ne" data-i18n="scriptNepali">Nepali</button>
       </div>
+      <div class="durations hidden" role="group" aria-label="Daily challenge length" id="daily-length-row">
+        <button class="key" data-dailymode="words" data-i18n="dailyModeWords">words</button>
+        <button class="key active" data-dailymode="sentences" data-i18n="dailyModeSentences">sentences</button>
+        <button class="key" data-dailymode="paragraph" data-i18n="dailyModeParagraph">paragraph</button>
+      </div>
       <div class="durations hidden" role="group" aria-label="Display name" id="player-name-row">
         <input type="text" id="player-name-input" class="custom-textarea" style="min-height:auto; width:160px; padding:6px 10px; margin:0;" maxlength="20" data-i18n-placeholder="playerNamePlaceholder" placeholder="your name" />
       </div>
       <div class="drill-target" id="game-info"></div>
       <div id="daily-leaderboard" class="hidden"></div>
+    </div>
+    <div class="settings-row hidden" id="leaderboard-panel">
+      <div class="durations" role="group" aria-label="Leaderboard language">
+        <button class="key active" data-lbscript="en" data-i18n="scriptEnglish">English</button>
+        <button class="key" data-lbscript="ne" data-i18n="scriptNepali">Nepali</button>
+      </div>
+      <div class="durations" role="group" aria-label="Leaderboard length">
+        <button class="key" data-lbmode="words" data-i18n="dailyModeWords">words</button>
+        <button class="key active" data-lbmode="sentences" data-i18n="dailyModeSentences">sentences</button>
+        <button class="key" data-lbmode="paragraph" data-i18n="dailyModeParagraph">paragraph</button>
+      </div>
     </div>
     <div class="stats" id="stats-row">
       <div class="stat"><span class="stat-label" data-i18n="statTime">time</span><span class="stat-value" id="stat-time">30</span></div>
@@ -923,6 +953,21 @@
     </div>
     <div style="display:flex; justify-content:center; margin-top:16px;">
       <button class="key" id="export-report-btn" data-i18n="exportReportBtn">download progress report</button>
+    </div>
+  </div>
+
+  <div class="stage-wrap hidden" id="leaderboard-wrap">
+    <div class="insights-card">
+      <div class="free-reference-label" data-i18n="leaderboardTitle">Today's full leaderboard</div>
+      <div class="lb-header">
+        <span class="lb-rank">#</span>
+        <span class="lb-name" data-i18n="leaderboardColName">name</span>
+        <span class="lb-wpm" data-i18n="statWpm">wpm</span>
+        <span class="lb-acc" data-i18n="statAcc">acc</span>
+      </div>
+      <div id="leaderboard-full-list"></div>
+      <div class="drill-target hidden" id="leaderboard-empty" data-i18n="leaderboardEmpty">No scores yet today for this language and length — be the first!</div>
+      <div class="drill-target hidden" id="leaderboard-offline" data-i18n="leaderboardOffline">The shared leaderboard isn't set up yet.</div>
     </div>
   </div>
 
@@ -1277,9 +1322,17 @@
     clear: { en: "clear", ne: "खाली गर्नुहोस्" },
     tabLessons: { en: "lessons", ne: "पाठहरू" },
     tabGames: { en: "games", ne: "खेलहरू" },
+    tabLeaderboard: { en: "leaderboard", ne: "लिडरबोर्ड" },
+    leaderboardTitle: { en: "Today's full leaderboard", ne: "आजको पूर्ण लिडरबोर्ड" },
+    leaderboardColName: { en: "name", ne: "नाम" },
+    leaderboardEmpty: { en: "No scores yet today for this language and length — be the first!", ne: "यो भाषा र लम्बाइका लागि आज अझै कुनै स्कोर छैन — पहिलो बन्नुहोस्!" },
+    leaderboardOffline: { en: "The shared leaderboard isn't set up yet.", ne: "साझा लिडरबोर्ड अझै सेटअप गरिएको छैन।" },
     tabInsights: { en: "insights", ne: "अन्तर्दृष्टि" },
     gameGhost: { en: "ghost race", ne: "घोस्ट रेस" },
     gameDaily: { en: "daily challenge", ne: "दैनिक चुनौती" },
+    dailyModeWords: { en: "words", ne: "शब्दहरू" },
+    dailyModeSentences: { en: "sentences", ne: "वाक्यहरू" },
+    dailyModeParagraph: { en: "paragraph", ne: "अनुच्छेद" },
     altQuizStart: { en: "quiz me on alt-codes", ne: "Alt-कोड क्विज सुरु गर्नुहोस्" },
     altQuizStop: { en: "stop quiz", ne: "क्विज रोक्नुहोस्" },
     insightsStreakLabel: { en: "Practice streak", ne: "अभ्यास स्ट्रिक" },
@@ -1981,19 +2034,39 @@
     return h;
   }
 
+  var dailyMode = 'sentences'; // 'words' | 'sentences' | 'paragraph'
+
+  function getDailyMode() {
+    try { return localStorage.getItem('clackpad_daily_mode') || 'sentences'; } catch (e) { return 'sentences'; }
+  }
+
+  function setDailyMode(mode) {
+    dailyMode = mode;
+    try { localStorage.setItem('clackpad_daily_mode', mode); } catch (e) {}
+  }
+
   function dailyChallengeText() {
+    var mode = dailyMode;
+    var rand = mulberry32(seedFromString(todayStr(0) + ':' + gameScript + ':' + mode));
+    if (mode === 'words') {
+      var wbank = gameScript === 'ne' ? NEPALI_CONTENT.words : FREE_WORDS.en;
+      var words = [];
+      for (var i = 0; i < 25; i++) { words.push(wbank[Math.floor(rand() * wbank.length)]); }
+      return words.join(' ');
+    }
     var sbank = gameScript === 'ne' ? NEPALI_CONTENT.sentences : FREE_SENTENCES.en;
-    var rand = mulberry32(seedFromString(todayStr(0) + ':' + gameScript));
+    var count = mode === 'paragraph' ? 5 : 2;
     var pool = sbank.slice();
     var picked = [];
-    for (var i = 0; i < 2 && pool.length; i++) {
+    for (var j = 0; j < count; j++) {
+      if (!pool.length) pool = sbank.slice();
       var idx = Math.floor(rand() * pool.length);
       picked.push(pool.splice(idx, 1)[0]);
     }
     return picked.join(' ');
   }
 
-  function dailyChallengeKey() { return 'clackpad_daily_' + todayStr(0) + '_' + gameScript; }
+  function dailyChallengeKey() { return 'clackpad_daily_' + todayStr(0) + '_' + gameScript + '_' + dailyMode; }
 
   // ---- Shared daily-challenge leaderboard (optional backend) --------------
   // Set this to your deployed backend's URL (see backend/ folder) to enable
@@ -2018,7 +2091,7 @@
     fetch(API_BASE + '/api/daily-score', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name, script: gameScript, date: todayStr(0), wpm: wpm, acc: acc })
+      body: JSON.stringify({ name: name, script: gameScript, mode: dailyMode, date: todayStr(0), wpm: wpm, acc: acc })
     }).then(function () {
       try {
         var dKey = dailyChallengeKey();
@@ -2048,7 +2121,7 @@
     if (!lbEl) return;
     if (!API_BASE) { lbEl.classList.add('hidden'); return; }
     var url = API_BASE + '/api/daily-leaderboard?date=' + encodeURIComponent(todayStr(0)) +
-      '&script=' + encodeURIComponent(gameScript) + '&limit=10';
+      '&script=' + encodeURIComponent(gameScript) + '&mode=' + encodeURIComponent(dailyMode) + '&limit=10';
     fetch(url).then(function (r) { return r.json(); }).then(function (rows) {
       renderLeaderboard(rows || []);
     }).catch(function () {
@@ -2069,6 +2142,51 @@
           '<span class="lb-name">' + row.name + '</span>' +
           '<span class="lb-wpm">' + row.wpm + ' wpm</span></div>';
       }).join('');
+  }
+
+  // ---- Standalone "leaderboard" tab: same data, its own filters, full list --
+  var lbScript = 'en';
+  var lbMode = 'sentences';
+
+  function fetchFullLeaderboard() {
+    var listEl = document.getElementById('leaderboard-full-list');
+    var emptyEl = document.getElementById('leaderboard-empty');
+    var offlineEl = document.getElementById('leaderboard-offline');
+    if (!listEl) return;
+    if (!API_BASE) {
+      listEl.innerHTML = '';
+      emptyEl.classList.add('hidden');
+      offlineEl.classList.remove('hidden');
+      return;
+    }
+    offlineEl.classList.add('hidden');
+    var url = API_BASE + '/api/daily-leaderboard?date=' + encodeURIComponent(todayStr(0)) +
+      '&script=' + encodeURIComponent(lbScript) + '&mode=' + encodeURIComponent(lbMode) + '&limit=50';
+    fetch(url).then(function (r) { return r.json(); }).then(function (rows) {
+      renderFullLeaderboard(rows || []);
+    }).catch(function () {
+      renderFullLeaderboard([]);
+    });
+  }
+
+  function renderFullLeaderboard(rows) {
+    var listEl = document.getElementById('leaderboard-full-list');
+    var emptyEl = document.getElementById('leaderboard-empty');
+    if (!listEl) return;
+    if (!rows.length) {
+      listEl.innerHTML = '';
+      emptyEl.classList.remove('hidden');
+      return;
+    }
+    emptyEl.classList.add('hidden');
+    var me = getPlayerName();
+    listEl.innerHTML = rows.map(function (row, i) {
+      return '<div class="lb-row' + (row.name === me ? ' lb-me' : '') + '">' +
+        '<span class="lb-rank">' + (i + 1) + '.</span>' +
+        '<span class="lb-name">' + row.name + '</span>' +
+        '<span class="lb-wpm">' + row.wpm + '</span>' +
+        '<span class="lb-acc">' + row.acc + '%</span></div>';
+    }).join('');
   }
 
   function ghostKey() { return 'clackpad_ghost_' + gameScript; }
@@ -2095,13 +2213,16 @@
     var el = document.getElementById('game-info');
     var nameRow = document.getElementById('player-name-row');
     var lbEl = document.getElementById('daily-leaderboard');
+    var lengthRow = document.getElementById('daily-length-row');
     if (!el) return;
     if (gameMode === 'ghost') {
       var ghost = loadGhost();
       el.textContent = ghost ? ('Racing your best run: ' + ghost.wpm + ' wpm. Type to begin.') : 'No ghost yet — this run sets the target for next time.';
       if (nameRow) nameRow.classList.add('hidden');
       if (lbEl) lbEl.classList.add('hidden');
+      if (lengthRow) lengthRow.classList.add('hidden');
     } else {
+      if (lengthRow) lengthRow.classList.remove('hidden');
       var existing = null;
       try { existing = JSON.parse(localStorage.getItem(dailyChallengeKey()) || 'null'); } catch (e) {}
       el.textContent = existing
@@ -3148,16 +3269,19 @@
   function applyTabVisibility() {
     var isFree = currentTab === 'free';
     var isInsights = currentTab === 'insights';
+    var isLeaderboard = currentTab === 'leaderboard';
     speedSettingsEl.classList.toggle('hidden', currentTab !== 'speed');
     weakPanelEl.classList.toggle('hidden', currentTab !== 'weak');
     freePanelEl.classList.toggle('hidden', currentTab !== 'free');
     lessonsPanelEl.classList.toggle('hidden', currentTab !== 'lessons');
     gamesPanelEl.classList.toggle('hidden', currentTab !== 'games');
-    stageWrapEl.classList.toggle('hidden', isFree || isInsights);
+    document.getElementById('leaderboard-panel').classList.toggle('hidden', !isLeaderboard);
+    stageWrapEl.classList.toggle('hidden', isFree || isInsights || isLeaderboard);
     freeStageWrapEl.classList.toggle('hidden', !isFree);
     insightsWrapEl.classList.toggle('hidden', !isInsights);
-    statsRowEl.classList.toggle('hidden', isFree || isInsights);
-    restartBtnEl.classList.toggle('hidden', isInsights);
+    document.getElementById('leaderboard-wrap').classList.toggle('hidden', !isLeaderboard);
+    statsRowEl.classList.toggle('hidden', isFree || isInsights || isLeaderboard);
+    restartBtnEl.classList.toggle('hidden', isInsights || isLeaderboard);
     restartBtnEl.textContent = isFree ? 'clear' : 'restart';
     updateAltCodePanelVisibility();
     document.getElementById('altquiz-toggle-row').classList.toggle('hidden', !(isFree && freeLang === 'ne'));
@@ -3198,6 +3322,8 @@
       } else if (currentTab === 'insights') {
         setKeyboardLabels('en');
         renderInsights();
+      } else if (currentTab === 'leaderboard') {
+        fetchFullLeaderboard();
       } else {
         updateKeyboardTargets([]);
         setKeyboardLabels(contentScript === 'ne' ? 'ne' : 'en');
@@ -3216,6 +3342,26 @@
       setKeyboardLabels(lessonLang === 'ne' ? 'ne' : 'en');
       renderLessonList();
       startLesson(Math.min(lessonProgress[lessonLang] || 0, LESSONS[lessonLang].length - 1));
+    });
+  });
+
+  var lbScriptButtons = document.querySelectorAll('#leaderboard-panel .key[data-lbscript]');
+  lbScriptButtons.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      lbScriptButtons.forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      lbScript = btn.getAttribute('data-lbscript');
+      fetchFullLeaderboard();
+    });
+  });
+
+  var lbModeButtons = document.querySelectorAll('#leaderboard-panel .key[data-lbmode]');
+  lbModeButtons.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      lbModeButtons.forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      lbMode = btn.getAttribute('data-lbmode');
+      fetchFullLeaderboard();
     });
   });
 
@@ -3245,6 +3391,21 @@
       gameScript = btn.getAttribute('data-gamescript');
       setKeyboardLabels(gameScript === 'ne' ? 'ne' : 'en');
       startGame();
+    });
+  });
+
+  var dailyModeButtons = document.querySelectorAll('#games-panel .key[data-dailymode]');
+  dailyMode = getDailyMode();
+  dailyModeButtons.forEach(function (btn) {
+    if (btn.getAttribute('data-dailymode') === dailyMode) {
+      dailyModeButtons.forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+    }
+    btn.addEventListener('click', function () {
+      dailyModeButtons.forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      setDailyMode(btn.getAttribute('data-dailymode'));
+      if (gameMode === 'daily') startGame();
     });
   });
 
