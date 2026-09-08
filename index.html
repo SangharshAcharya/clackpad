@@ -244,12 +244,13 @@
 
   .mixup-row .mixup-count { color: var(--muted); font-size: 11px; }
 
-  #daily-leaderboard {
+  #daily-leaderboard, .mini-leaderboard {
     margin-top: 10px;
     padding-top: 10px;
     border-top: 1px solid var(--muted-2);
     max-width: 320px;
   }
+  .mini-leaderboard .mini-lb-section + .mini-lb-section { margin-top: 8px; }
   .lb-row {
     display: flex;
     justify-content: space-between;
@@ -812,6 +813,10 @@
         <option value="policy" data-i18n="topicPolicy">Policy & sustainability</option>
         <option value="urban_energy" data-i18n="topicUrbanEnergy">Urban & energy environment</option>
       </select>
+      <div class="durations hidden" role="group" aria-label="Display name" id="speed-name-row" style="flex-basis:100%;">
+        <input type="text" id="speed-name-input" class="custom-textarea" style="min-height:auto; width:160px; padding:6px 10px; margin:0;" maxlength="20" autocomplete="off" data-i18n-placeholder="playerNamePlaceholder" placeholder="your name" />
+      </div>
+      <div id="speed-leaderboard" class="mini-leaderboard hidden" style="flex-basis:100%;"></div>
     </div>
     <div class="weak-panel hidden" id="weak-panel">
       <div class="letter-grid" id="letter-grid"></div>
@@ -865,13 +870,23 @@
       </div>
       <div class="drill-target" id="game-info"></div>
       <div id="daily-leaderboard" class="hidden"></div>
+      <div id="ghost-leaderboard" class="mini-leaderboard hidden" style="flex-basis:100%;"></div>
     </div>
     <div class="settings-row hidden" id="leaderboard-panel">
+      <div class="durations" role="group" aria-label="Leaderboard game">
+        <button class="key active" data-lbboard="daily" data-i18n="gameDaily">daily challenge</button>
+        <button class="key" data-lbboard="speedtest" data-i18n="lbBoardSpeedtest">speed test</button>
+        <button class="key" data-lbboard="ghost" data-i18n="gameGhost">ghost race</button>
+      </div>
+      <div class="durations" role="group" aria-label="Leaderboard scope">
+        <button class="key active" data-lbscope="today" data-i18n="lbScopeToday">today</button>
+        <button class="key" data-lbscope="alltime" data-i18n="lbScopeAllTime">all-time</button>
+      </div>
       <div class="durations" role="group" aria-label="Leaderboard language">
         <button class="key active" data-lbscript="en" data-i18n="scriptEnglish">English</button>
         <button class="key" data-lbscript="ne" data-i18n="scriptNepali">Nepali</button>
       </div>
-      <div class="durations" role="group" aria-label="Leaderboard length">
+      <div class="durations" role="group" aria-label="Leaderboard length" id="lb-mode-row">
         <button class="key" data-lbmode="words" data-i18n="dailyModeWords">words</button>
         <button class="key active" data-lbmode="sentences" data-i18n="dailyModeSentences">sentences</button>
         <button class="key" data-lbmode="paragraph" data-i18n="dailyModeParagraph">paragraph</button>
@@ -958,7 +973,7 @@
 
   <div class="stage-wrap hidden" id="leaderboard-wrap">
     <div class="insights-card">
-      <div class="free-reference-label" data-i18n="leaderboardTitle">Today's full leaderboard</div>
+      <div class="free-reference-label" id="leaderboard-wrap-title" data-i18n="leaderboardTitle">Today's full leaderboard</div>
       <div class="lb-header">
         <span class="lb-rank">#</span>
         <span class="lb-name" data-i18n="leaderboardColName">name</span>
@@ -1166,21 +1181,44 @@
       "\u0938\u0947\u092C","\u092C\u0947\u0932\u0941\u0915\u0940","\u092E\u0928","\u092E\u0928\u0949","\u0906\u0915\u093E\u0936","\u092A\u0943\u0925\u094D\u0935\u0940","\u092C\u091A\u094D\u091A\u093E","\u091F\u094B\u092A\u0940","\u092A\u094B\u0916\u0930\u0940","\u0938\u0921\u0915","\u092A\u0938\u0932","\u0917\u093E\u0908","\u092C\u0917\u0930","\u0916\u0947\u0924"
     ]),
     sentences: [
-      "\u092E \u0935\u093F\u0926\u094D\u092F\u093E\u0932\u092F \u091C\u093E\u0928\u094D\u091B\u0941\u0964",
-      "\u0909\u0928\u0940 \u0915\u093F\u0924\u093E\u092C \u092A\u0922\u094D\u091B\u093F\u0928\u094D\u0964",
-      "\u0939\u093E\u092E\u0940 \u092A\u093E\u0928\u0940 \u092A\u093F\u0909\u0901\u091B\u094C\u0902\u0964",
-      "\u092C\u093F\u0930\u093E\u0932\u094B \u0918\u0930\u092E\u093E \u092C\u0938\u094D\u091B\u0964",
-      "\u0906\u091C \u092E\u094C\u0938\u092E \u0930\u093E\u092E\u094D\u0930\u094B \u091B\u0964",
-      "\u0909\u0938\u0932\u0947 \u0916\u093E\u0928\u093E \u092A\u0915\u093E\u0909\u0901\u091B\u0964",
-      "\u092C\u091A\u094D\u091A\u093E\u0939\u0930\u0942 \u092A\u093E\u0930\u094D\u0915\u092E\u093E \u0916\u0947\u0932\u094D\u091B\u0928\u094D\u0964",
-      "\u092F\u094B \u0915\u093F\u0924\u093E\u092C \u092E\u0947\u0930\u094B \u0939\u094B\u0964",
-      "\u0939\u093F\u091C\u094B \u092A\u093E\u0928\u0940 \u092A\u0930\u094D\u092F\u094B\u0964",
-      "\u092D\u094B\u0932\u093F \u0939\u093E\u092E\u0940 \u092C\u091C\u093E\u0930 \u091C\u093E\u0928\u094D\u091B\u094C\u0902\u0964"
+      "म विद्यालय जान्छु।",
+      "उनी किताब पढ्छिन्।",
+      "हामी पानी पिउँछौं।",
+      "बिरालो घरमा बस्छ।",
+      "आज मौसम राम्रो छ।",
+      "उसले खाना पकाउँछ।",
+      "बच्चाहरू पार्कमा खेल्छन्।",
+      "यो किताब मेरो हो।",
+      "हिजो पानी पर्यो।",
+      "भोलि हामी बजार जान्छौं।",
+      "मेरो साथी दैनिक विद्यालय आउँछ।",
+      "आमाले बिहान खाना बनाउनुहुन्छ।",
+      "बुबा हरेक साँझ पैदल हिँड्नुहुन्छ।",
+      "हामी नदीको छेउमा बसेका थियौं।",
+      "फूलहरू बगैंचामा राम्रोसँग फुलेका छन्।",
+      "उनले नयाँ किताब किनिन्।",
+      "पहाडमा हिउँ परेको छ।",
+      "बच्चाले चित्र कोरिरहेको छ।",
+      "शिक्षकले पाठ राम्रोसँग पढाउनुभयो।",
+      "दिदीले भाइलाई सहयोग गरिन्।",
+      "गाउँमा चराहरू गाउँछन्।",
+      "हामीले चिया पियौं।",
+      "उनी अस्पताल गए।",
+      "सूर्य पूर्वबाट उदाउँछ।",
+      "गाडी सडकमा गुड्छ।",
+      "किसानले खेतमा धान रोप्छन्।",
+      "बजारमा तरकारी सस्तो छ।",
+      "साथीहरू सँगै खेल्छन्।",
+      "रातमा आकाशमा तारा देखिन्छन्।",
+      "म हरेक दिन डायरी लेख्छु।"
     ]
   };
 
 
-  // Short everyday sentences for the Free Type tab's "sentences" mode.
+  // Short everyday sentences for the Free Type tab's "sentences" mode. Also
+  // reused by the Lessons custom-text fallback and the Games > Daily
+  // Challenge sentence/paragraph modes, so a bigger pool means more variety
+  // and less repetition on the daily leaderboard.
   var FREE_SENTENCES = {
     en: [
       "The sun rises in the east every morning.",
@@ -1192,7 +1230,27 @@
       "Children play happily in the park.",
       "This book belongs to my best friend.",
       "It rained heavily yesterday evening.",
-      "Tomorrow we will visit the local market."
+      "Tomorrow we will visit the local market.",
+      "My brother enjoys painting pictures of the mountains.",
+      "The train arrives at the station every hour.",
+      "She waters the plants in the garden each morning.",
+      "A gentle breeze moved through the open window.",
+      "The teacher explained the lesson slowly and clearly.",
+      "We packed our bags for the long journey ahead.",
+      "The baker sells fresh bread early in the morning.",
+      "Birds sang sweetly as the sun came up.",
+      "He fixed the broken chair with a few nails.",
+      "The children laughed while playing in the yard.",
+      "A cup of hot tea warms a cold evening.",
+      "The library stays open until nine at night.",
+      "Farmers plant rice during the rainy season.",
+      "The old bridge connects the two small villages.",
+      "She wrote a letter to her grandmother yesterday.",
+      "The mountains looked bright under the winter snow.",
+      "He walks his dog around the block every evening.",
+      "The market was busy with shoppers on Saturday.",
+      "Fresh vegetables make the soup taste even better.",
+      "The stars appeared clearly in the night sky."
     ],
     ne: NEPALI_CONTENT.sentences
   };
@@ -1327,6 +1385,9 @@
     leaderboardColName: { en: "name", ne: "नाम" },
     leaderboardEmpty: { en: "No scores yet today for this language and length — be the first!", ne: "यो भाषा र लम्बाइका लागि आज अझै कुनै स्कोर छैन — पहिलो बन्नुहोस्!" },
     leaderboardOffline: { en: "The shared leaderboard isn't set up yet.", ne: "साझा लिडरबोर्ड अझै सेटअप गरिएको छैन।" },
+    lbBoardSpeedtest: { en: "speed test", ne: "गति परीक्षण" },
+    lbScopeToday: { en: "today", ne: "आज" },
+    lbScopeAllTime: { en: "all-time", ne: "सबैभन्दा राम्रो" },
     tabInsights: { en: "insights", ne: "अन्तर्दृष्टि" },
     gameGhost: { en: "ghost race", ne: "घोस्ट रेस" },
     gameDaily: { en: "daily challenge", ne: "दैनिक चुनौती" },
@@ -2086,26 +2147,64 @@
     return sessionPlayerName;
   }
 
+  // Sets the shared player name and keeps every name field on the page
+  // (speed test, games tab) in sync, since they all submit to the same
+  // set of leaderboards under one identity.
   function setPlayerName(name) {
     sessionPlayerName = name;
+    ['player-name-input', 'speed-name-input'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el && el.value !== name) el.value = name;
+    });
   }
 
-  function submitDailyScore(wpm, acc) {
+  // ---- Generic score submission + fetch, shared by all three boards -------
+  // (daily challenge, speed test, ghost race). Each board tracks both a
+  // "today" leaderboard (resets daily) and an "all-time" high-score board.
+
+  function submitBoardScore(board, script, modeVal, wpm, acc, onSuccess) {
     if (!API_BASE) return;
     var name = getPlayerName();
     if (!name) return;
-    fetch(API_BASE + '/api/daily-score', {
+    fetch(API_BASE + '/api/score', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name, script: gameScript, mode: dailyMode, date: todayStr(0), wpm: wpm, acc: acc })
+      body: JSON.stringify({ name: name, script: script, mode: modeVal, board: board, date: todayStr(0), wpm: wpm, acc: acc })
     }).then(function () {
+      if (onSuccess) onSuccess();
+    }).catch(function () {});
+  }
+
+  function fetchBoardLeaderboard(board, script, modeVal, scope, limit, cb) {
+    if (!API_BASE) { cb([]); return; }
+    var url = scope === 'alltime'
+      ? API_BASE + '/api/leaderboard/alltime?board=' + encodeURIComponent(board) +
+        '&script=' + encodeURIComponent(script) + '&mode=' + encodeURIComponent(modeVal) + '&limit=' + limit
+      : API_BASE + '/api/leaderboard?date=' + encodeURIComponent(todayStr(0)) + '&board=' + encodeURIComponent(board) +
+        '&script=' + encodeURIComponent(script) + '&mode=' + encodeURIComponent(modeVal) + '&limit=' + limit;
+    fetch(url).then(function (r) { return r.json(); }).then(function (rows) {
+      cb(rows || []);
+    }).catch(function () { cb([]); });
+  }
+
+  function renderLbRows(rows, me) {
+    return rows.map(function (row, i) {
+      return '<div class="lb-row' + (row.name === me ? ' lb-me' : '') + '">' +
+        '<span class="lb-rank">' + (i + 1) + '.</span>' +
+        '<span class="lb-name">' + row.name + '</span>' +
+        '<span class="lb-wpm">' + row.wpm + ' wpm</span></div>';
+    }).join('');
+  }
+
+  function submitDailyScore(wpm, acc) {
+    submitBoardScore('daily', gameScript, dailyMode, wpm, acc, function () {
       try {
         var dKey = dailyChallengeKey();
         var rec = JSON.parse(localStorage.getItem(dKey) || 'null');
         if (rec) { rec.submitted = true; localStorage.setItem(dKey, JSON.stringify(rec)); }
       } catch (e) {}
       fetchLeaderboard();
-    }).catch(function () {});
+    });
   }
 
   // If someone finishes today's challenge before typing a name (or the
@@ -2126,12 +2225,8 @@
     var lbEl = document.getElementById('daily-leaderboard');
     if (!lbEl) return;
     if (!API_BASE) { lbEl.classList.add('hidden'); return; }
-    var url = API_BASE + '/api/daily-leaderboard?date=' + encodeURIComponent(todayStr(0)) +
-      '&script=' + encodeURIComponent(gameScript) + '&mode=' + encodeURIComponent(dailyMode) + '&limit=10';
-    fetch(url).then(function (r) { return r.json(); }).then(function (rows) {
-      renderLeaderboard(rows || []);
-    }).catch(function () {
-      lbEl.classList.add('hidden');
+    fetchBoardLeaderboard('daily', gameScript, dailyMode, 'today', 10, function (rows) {
+      renderLeaderboard(rows);
     });
   }
 
@@ -2141,16 +2236,54 @@
     if (!rows.length) { lbEl.classList.add('hidden'); lbEl.innerHTML = ''; return; }
     var me = getPlayerName();
     lbEl.classList.remove('hidden');
-    lbEl.innerHTML = "<div class=\"free-reference-label\">Today's leaderboard</div>" +
-      rows.map(function (row, i) {
-        return '<div class="lb-row' + (row.name === me ? ' lb-me' : '') + '">' +
-          '<span class="lb-rank">' + (i + 1) + '.</span>' +
-          '<span class="lb-name">' + row.name + '</span>' +
-          '<span class="lb-wpm">' + row.wpm + ' wpm</span></div>';
-      }).join('');
+    lbEl.innerHTML = "<div class=\"free-reference-label\">Today's leaderboard</div>" + renderLbRows(rows, me);
   }
 
-  // ---- Standalone "leaderboard" tab: same data, its own filters, full list --
+  // ---- Speed test mini leaderboard (today + all-time) ----------------------
+
+  function refreshSpeedLeaderboard() {
+    var nameRow = document.getElementById('speed-name-row');
+    var el = document.getElementById('speed-leaderboard');
+    if (nameRow) nameRow.classList.toggle('hidden', !API_BASE);
+    if (!el) return;
+    if (!API_BASE) { el.classList.add('hidden'); el.innerHTML = ''; return; }
+    var me = getPlayerName();
+    fetchBoardLeaderboard('speedtest', contentScript, mode, 'today', 10, function (todayRows) {
+      fetchBoardLeaderboard('speedtest', contentScript, mode, 'alltime', 10, function (allRows) {
+        if (!todayRows.length && !allRows.length) { el.classList.add('hidden'); el.innerHTML = ''; return; }
+        el.classList.remove('hidden');
+        el.innerHTML =
+          '<div class="mini-lb-section"><div class="free-reference-label">Today\u2019s speed test leaderboard</div>' + renderLbRows(todayRows, me) + '</div>' +
+          '<div class="mini-lb-section"><div class="free-reference-label">All-time best</div>' + renderLbRows(allRows, me) + '</div>';
+      });
+    });
+  }
+
+  // ---- Ghost race mini leaderboard (today + all-time) -----------------------
+  // Ghost race always uses the same content shape (random words), so it
+  // doesn't have a separate content-mode selector — it's tracked under a
+  // fixed mode value.
+  var GHOST_MODE = 'words';
+
+  function refreshGhostLeaderboard() {
+    var el = document.getElementById('ghost-leaderboard');
+    if (!el) return;
+    if (!API_BASE) { el.classList.add('hidden'); el.innerHTML = ''; return; }
+    var me = getPlayerName();
+    fetchBoardLeaderboard('ghost', gameScript, GHOST_MODE, 'today', 10, function (todayRows) {
+      fetchBoardLeaderboard('ghost', gameScript, GHOST_MODE, 'alltime', 10, function (allRows) {
+        if (!todayRows.length && !allRows.length) { el.classList.add('hidden'); el.innerHTML = ''; return; }
+        el.classList.remove('hidden');
+        el.innerHTML =
+          '<div class="mini-lb-section"><div class="free-reference-label">Today\u2019s ghost race leaderboard</div>' + renderLbRows(todayRows, me) + '</div>' +
+          '<div class="mini-lb-section"><div class="free-reference-label">All-time best</div>' + renderLbRows(allRows, me) + '</div>';
+      });
+    });
+  }
+
+  // ---- Standalone "leaderboard" tab: any board, today or all-time, full list --
+  var lbBoard = 'daily';
+  var lbScope = 'today';
   var lbScript = 'en';
   var lbMode = 'sentences';
 
@@ -2159,6 +2292,7 @@
     var emptyEl = document.getElementById('leaderboard-empty');
     var offlineEl = document.getElementById('leaderboard-offline');
     if (!listEl) return;
+    updateLeaderboardTitle();
     if (!API_BASE) {
       listEl.innerHTML = '';
       emptyEl.classList.add('hidden');
@@ -2166,12 +2300,9 @@
       return;
     }
     offlineEl.classList.add('hidden');
-    var url = API_BASE + '/api/daily-leaderboard?date=' + encodeURIComponent(todayStr(0)) +
-      '&script=' + encodeURIComponent(lbScript) + '&mode=' + encodeURIComponent(lbMode) + '&limit=50';
-    fetch(url).then(function (r) { return r.json(); }).then(function (rows) {
-      renderFullLeaderboard(rows || []);
-    }).catch(function () {
-      renderFullLeaderboard([]);
+    var modeForFetch = lbBoard === 'ghost' ? GHOST_MODE : lbMode;
+    fetchBoardLeaderboard(lbBoard, lbScript, modeForFetch, lbScope, 50, function (rows) {
+      renderFullLeaderboard(rows);
     });
   }
 
@@ -2224,11 +2355,14 @@
     if (gameMode === 'ghost') {
       var ghost = loadGhost();
       el.textContent = ghost ? ('Racing your best run: ' + ghost.wpm + ' wpm. Type to begin.') : 'No ghost yet — this run sets the target for next time.';
-      if (nameRow) nameRow.classList.add('hidden');
+      if (nameRow) nameRow.classList.toggle('hidden', !API_BASE);
       if (lbEl) lbEl.classList.add('hidden');
       if (lengthRow) lengthRow.classList.add('hidden');
+      if (API_BASE) refreshGhostLeaderboard();
     } else {
       if (lengthRow) lengthRow.classList.remove('hidden');
+      var ghostLbEl = document.getElementById('ghost-leaderboard');
+      if (ghostLbEl) { ghostLbEl.classList.add('hidden'); ghostLbEl.innerHTML = ''; }
       var existing = null;
       try { existing = JSON.parse(localStorage.getItem(dailyChallengeKey()) || 'null'); } catch (e) {}
       el.textContent = existing
@@ -2699,6 +2833,7 @@
     document.getElementById('stat-best').textContent = bestByDuration[duration] || 0;
     var text = generateChunk(mode === 'sentences' ? 6 : 40);
     renderText(text);
+    if (API_BASE) refreshSpeedLeaderboard();
   }
 
   function showWeakPrompt() {
@@ -2881,6 +3016,7 @@
           saveGhost(wpm, ghostTrackLive);
           document.getElementById('game-info').textContent = 'New ghost saved at ' + wpm + ' wpm.';
         }
+        submitBoardScore('ghost', gameScript, GHOST_MODE, wpm, acc, refreshGhostLeaderboard);
       } else if (gameMode === 'daily') {
         var dKey = dailyChallengeKey();
         var already = null;
@@ -2900,6 +3036,7 @@
       document.getElementById('stat-best').textContent = bestByDuration[duration];
       badgeState = isNewBest ? 'best' : 'default';
       logSession(wpm, acc, 'speed', correctCount, consistency);
+      submitBoardScore('speedtest', contentScript, mode, wpm, acc, refreshSpeedLeaderboard);
     }
     refreshBadge();
 
@@ -3351,6 +3488,51 @@
     });
   });
 
+  function applyLbBoardVisibility() {
+    var modeRow = document.getElementById('lb-mode-row');
+    if (!modeRow) return;
+    var paragraphBtn = modeRow.querySelector('[data-lbmode="paragraph"]');
+    if (lbBoard === 'ghost') {
+      modeRow.classList.add('hidden');
+    } else {
+      modeRow.classList.remove('hidden');
+      if (paragraphBtn) paragraphBtn.classList.toggle('hidden', lbBoard === 'speedtest');
+      if (lbBoard === 'speedtest' && lbMode === 'paragraph') {
+        lbMode = 'sentences';
+        lbModeButtons.forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-lbmode') === 'sentences'); });
+      }
+    }
+  }
+
+  function updateLeaderboardTitle() {
+    var titleEl = document.getElementById('leaderboard-wrap-title');
+    if (!titleEl) return;
+    var boardLabel = lbBoard === 'daily' ? t('gameDaily') : (lbBoard === 'speedtest' ? t('lbBoardSpeedtest') : t('gameGhost'));
+    var scopeLabel = lbScope === 'alltime' ? t('lbScopeAllTime') : t('lbScopeToday');
+    titleEl.textContent = boardLabel + ' \u2014 ' + scopeLabel;
+  }
+
+  var lbBoardButtons = document.querySelectorAll('#leaderboard-panel .key[data-lbboard]');
+  lbBoardButtons.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      lbBoardButtons.forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      lbBoard = btn.getAttribute('data-lbboard');
+      applyLbBoardVisibility();
+      fetchFullLeaderboard();
+    });
+  });
+
+  var lbScopeButtons = document.querySelectorAll('#leaderboard-panel .key[data-lbscope]');
+  lbScopeButtons.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      lbScopeButtons.forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      lbScope = btn.getAttribute('data-lbscope');
+      fetchFullLeaderboard();
+    });
+  });
+
   var lbScriptButtons = document.querySelectorAll('#leaderboard-panel .key[data-lbscript]');
   lbScriptButtons.forEach(function (btn) {
     btn.addEventListener('click', function () {
@@ -3370,6 +3552,7 @@
       fetchFullLeaderboard();
     });
   });
+  applyLbBoardVisibility();
 
   var customTextInput = document.getElementById('custom-text-input');
   var customTextBtn = document.getElementById('custom-text-btn');
@@ -3415,13 +3598,30 @@
     });
   });
 
+  // The name field is shared: typing it in on any tab (speed test, games)
+  // sets the identity used for every leaderboard, and all copies of the
+  // field (and their leaderboards) stay in sync.
+  function onNameFieldChanged(rawValue) {
+    setPlayerName(rawValue.trim().slice(0, 20));
+    trySubmitPendingDaily();
+    fetchLeaderboard();
+    refreshSpeedLeaderboard();
+    refreshGhostLeaderboard();
+  }
+
   var playerNameInput = document.getElementById('player-name-input');
   if (playerNameInput) {
     playerNameInput.value = getPlayerName();
     playerNameInput.addEventListener('change', function () {
-      setPlayerName(playerNameInput.value.trim().slice(0, 20));
-      trySubmitPendingDaily();
-      fetchLeaderboard();
+      onNameFieldChanged(playerNameInput.value);
+    });
+  }
+
+  var speedNameInput = document.getElementById('speed-name-input');
+  if (speedNameInput) {
+    speedNameInput.value = getPlayerName();
+    speedNameInput.addEventListener('change', function () {
+      onNameFieldChanged(speedNameInput.value);
     });
   }
 
