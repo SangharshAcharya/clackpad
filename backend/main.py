@@ -8,9 +8,14 @@ online-leaderboard features:
   - "speedtest" the speed test tab (unlimited practice)
   - "ghost"     ghost race mode
 
-For each (name, script, mode, board) combination we track two things:
+For each (name, script, mode, board, duration) combination we track two things:
   - the best score *for a given date* (a "daily" board, reset each day)
   - the best score *of all time*      (an "all-time" high-score board)
+
+`duration` only matters for the speed test board (15/30/60/120 seconds) —
+daily challenge and ghost race submissions always send duration=0, since a
+15-second sprint and a 2-minute run aren't a fair comparison, but daily
+challenge/ghost race don't have that axis at all.
 
 Everything else in Clackpad (streaks, lessons, badges, the ghost you race
 against) still lives in each browser's localStorage — this API only ever
@@ -56,11 +61,12 @@ _DAILY_SCHEMA = """
         script TEXT NOT NULL,
         mode TEXT NOT NULL DEFAULT 'sentences',
         board TEXT NOT NULL DEFAULT 'daily',
+        duration INTEGER NOT NULL DEFAULT 0,
         date TEXT NOT NULL,
         wpm INTEGER NOT NULL,
         acc INTEGER NOT NULL,
         submitted_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (name, script, mode, board, date)
+        PRIMARY KEY (name, script, mode, board, duration, date)
     )
 """
 
@@ -70,10 +76,11 @@ _ALLTIME_SCHEMA = """
         script TEXT NOT NULL,
         mode TEXT NOT NULL DEFAULT 'sentences',
         board TEXT NOT NULL DEFAULT 'daily',
+        duration INTEGER NOT NULL DEFAULT 0,
         wpm INTEGER NOT NULL,
         acc INTEGER NOT NULL,
         submitted_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (name, script, mode, board)
+        PRIMARY KEY (name, script, mode, board, duration)
     )
 """
 
@@ -95,17 +102,20 @@ def init_db():
             r["name"]
             for r in conn.execute("PRAGMA table_info(daily_scores)").fetchall()
         ]
-        if cols and "board" not in cols:
-            # Pre-existing DB from before boards existed (only ever held
-            # "daily" rows). Migrate it onto the new primary key that
-            # includes `board`, so speedtest/ghost rows for the same
-            # name+script+mode+date can't collide with daily ones.
+        if cols and ("board" not in cols or "duration" not in cols):
+            # Pre-existing DB from before boards/duration existed. Migrate it
+            # onto the current primary key (which now also includes
+            # `duration`, so speed-test scores at different time limits
+            # don't collide with or get compared against each other).
             conn.execute("ALTER TABLE daily_scores RENAME TO daily_scores_old")
             conn.execute(_DAILY_SCHEMA)
+            old_cols = set(cols)
+            board_expr = "board" if "board" in old_cols else "'daily'"
+            duration_expr = "duration" if "duration" in old_cols else "0"
             conn.execute(
-                """
-                INSERT INTO daily_scores (name, script, mode, board, date, wpm, acc, submitted_at)
-                SELECT name, script, mode, 'daily', date, wpm, acc, submitted_at FROM daily_scores_old
+                f"""
+                INSERT INTO daily_scores (name, script, mode, board, duration, date, wpm, acc, submitted_at)
+                SELECT name, script, mode, {board_expr}, {duration_expr}, date, wpm, acc, submitted_at FROM daily_scores_old
                 """
             )
             conn.execute("DROP TABLE daily_scores_old")
@@ -126,6 +136,7 @@ class ScoreSubmission(BaseModel):
     script: str = Field(pattern=_SCRIPT_PATTERN)
     mode: str = Field(default="sentences", pattern=_MODE_PATTERN)
     board: str = Field(default="daily", pattern=_BOARD_PATTERN)
+    duration: int = Field(default=0, ge=0, le=600)  # seconds; 0 where duration doesn't apply (daily/ghost)
     date: str = Field(min_length=10, max_length=10)  # YYYY-MM-DD
     wpm: int = Field(ge=0, le=400)
     acc: int = Field(ge=0, le=100)
@@ -163,40 +174,40 @@ def submit_score(payload: ScoreSubmission):
     with get_db() as conn:
         # Best score for that specific day (the "daily" board, reset each day).
         existing = conn.execute(
-            "SELECT wpm FROM daily_scores WHERE name = ? AND script = ? AND mode = ? AND board = ? AND date = ?",
-            (name, payload.script, payload.mode, payload.board, payload.date),
+            "SELECT wpm FROM daily_scores WHERE name = ? AND script = ? AND mode = ? AND board = ? AND duration = ? AND date = ?",
+            (name, payload.script, payload.mode, payload.board, payload.duration, payload.date),
         ).fetchone()
         if existing is None:
             conn.execute(
-                "INSERT INTO daily_scores (name, script, mode, board, date, wpm, acc) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (name, payload.script, payload.mode, payload.board, payload.date, payload.wpm, payload.acc),
+                "INSERT INTO daily_scores (name, script, mode, board, duration, date, wpm, acc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (name, payload.script, payload.mode, payload.board, payload.duration, payload.date, payload.wpm, payload.acc),
             )
         elif payload.wpm > existing["wpm"]:
             conn.execute(
-                "UPDATE daily_scores SET wpm = ?, acc = ? WHERE name = ? AND script = ? AND mode = ? AND board = ? AND date = ?",
-                (payload.wpm, payload.acc, name, payload.script, payload.mode, payload.board, payload.date),
+                "UPDATE daily_scores SET wpm = ?, acc = ? WHERE name = ? AND script = ? AND mode = ? AND board = ? AND duration = ? AND date = ?",
+                (payload.wpm, payload.acc, name, payload.script, payload.mode, payload.board, payload.duration, payload.date),
             )
 
         # Best score ever (the "all-time" board).
         best = conn.execute(
-            "SELECT wpm FROM alltime_scores WHERE name = ? AND script = ? AND mode = ? AND board = ?",
-            (name, payload.script, payload.mode, payload.board),
+            "SELECT wpm FROM alltime_scores WHERE name = ? AND script = ? AND mode = ? AND board = ? AND duration = ?",
+            (name, payload.script, payload.mode, payload.board, payload.duration),
         ).fetchone()
         if best is None:
             conn.execute(
-                "INSERT INTO alltime_scores (name, script, mode, board, wpm, acc) VALUES (?, ?, ?, ?, ?, ?)",
-                (name, payload.script, payload.mode, payload.board, payload.wpm, payload.acc),
+                "INSERT INTO alltime_scores (name, script, mode, board, duration, wpm, acc) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (name, payload.script, payload.mode, payload.board, payload.duration, payload.wpm, payload.acc),
             )
         elif payload.wpm > best["wpm"]:
             conn.execute(
-                "UPDATE alltime_scores SET wpm = ?, acc = ? WHERE name = ? AND script = ? AND mode = ? AND board = ?",
-                (payload.wpm, payload.acc, name, payload.script, payload.mode, payload.board),
+                "UPDATE alltime_scores SET wpm = ?, acc = ? WHERE name = ? AND script = ? AND mode = ? AND board = ? AND duration = ?",
+                (payload.wpm, payload.acc, name, payload.script, payload.mode, payload.board, payload.duration),
             )
     return {"ok": True}
 
 
 @app.get("/api/leaderboard")
-def leaderboard(date: str, script: str = "en", mode: str = "sentences", board: str = "daily", limit: int = 10):
+def leaderboard(date: str, script: str = "en", mode: str = "sentences", board: str = "daily", duration: int = 0, limit: int = 10):
     """Best score per person for one specific day."""
     _check_script(script)
     _check_mode(mode)
@@ -206,18 +217,18 @@ def leaderboard(date: str, script: str = "en", mode: str = "sentences", board: s
         rows = conn.execute(
             """
             SELECT name, wpm, acc FROM daily_scores
-            WHERE date = ? AND script = ? AND mode = ? AND board = ?
+            WHERE date = ? AND script = ? AND mode = ? AND board = ? AND duration = ?
             ORDER BY wpm DESC
             LIMIT ?
             """,
-            (date, script, mode, board, limit),
+            (date, script, mode, board, duration, limit),
         ).fetchall()
     return [{"name": r["name"], "wpm": r["wpm"], "acc": r["acc"]} for r in rows]
 
 
 @app.get("/api/leaderboard/alltime")
-def alltime_leaderboard(script: str = "en", mode: str = "sentences", board: str = "daily", limit: int = 10):
-    """Best score per person ever, for a given board/script/mode."""
+def alltime_leaderboard(script: str = "en", mode: str = "sentences", board: str = "daily", duration: int = 0, limit: int = 10):
+    """Best score per person ever, for a given board/script/mode/duration."""
     _check_script(script)
     _check_mode(mode)
     _check_board(board)
@@ -226,11 +237,11 @@ def alltime_leaderboard(script: str = "en", mode: str = "sentences", board: str 
         rows = conn.execute(
             """
             SELECT name, wpm, acc FROM alltime_scores
-            WHERE script = ? AND mode = ? AND board = ?
+            WHERE script = ? AND mode = ? AND board = ? AND duration = ?
             ORDER BY wpm DESC
             LIMIT ?
             """,
-            (script, mode, board, limit),
+            (script, mode, board, duration, limit),
         ).fetchall()
     return [{"name": r["name"], "wpm": r["wpm"], "acc": r["acc"]} for r in rows]
 
