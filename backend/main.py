@@ -1,10 +1,20 @@
 """
 Clackpad leaderboard backend.
 
-A tiny FastAPI service that stores one best daily-challenge score per
-(name, date, script) and serves a leaderboard for a given day. This is the
-whole "multi-user" surface for now — everything else in Clackpad (streaks,
-lessons, ghost races, badges) still lives in each browser's localStorage.
+A tiny FastAPI service that stores best typing scores for Clackpad's three
+online-leaderboard features:
+
+  - "daily"     the daily challenge (one official attempt per person/day)
+  - "speedtest" the speed test tab (unlimited practice)
+  - "ghost"     ghost race mode
+
+For each (name, script, mode, board) combination we track two things:
+  - the best score *for a given date* (a "daily" board, reset each day)
+  - the best score *of all time*      (an "all-time" high-score board)
+
+Everything else in Clackpad (streaks, lessons, badges, the ghost you race
+against) still lives in each browser's localStorage — this API only ever
+sees a name + wpm + accuracy, submitted once a run finishes.
 
 Run locally:
     pip install -r requirements.txt
@@ -26,15 +36,46 @@ DB_PATH = os.environ.get("CLACKPAD_DB_PATH", "clackpad.db")
 
 app = FastAPI(title="Clackpad Leaderboard API")
 
-# Wide-open CORS: this API only ever stores a name + wpm + accuracy for a
-# public daily leaderboard, so there's nothing sensitive to protect behind
-# an origin check. Tighten this to your actual site's origin if you'd rather.
+# Wide-open CORS: this API only ever stores a name + wpm + accuracy for
+# public leaderboards, so there's nothing sensitive to protect behind an
+# origin check. Tighten this to your actual site's origin if you'd rather.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+BOARDS = ("daily", "speedtest", "ghost")
+MODES = ("words", "sentences", "paragraph")
+SCRIPTS = ("en", "ne")
+
+_DAILY_SCHEMA = """
+    CREATE TABLE IF NOT EXISTS daily_scores (
+        name TEXT NOT NULL,
+        script TEXT NOT NULL,
+        mode TEXT NOT NULL DEFAULT 'sentences',
+        board TEXT NOT NULL DEFAULT 'daily',
+        date TEXT NOT NULL,
+        wpm INTEGER NOT NULL,
+        acc INTEGER NOT NULL,
+        submitted_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (name, script, mode, board, date)
+    )
+"""
+
+_ALLTIME_SCHEMA = """
+    CREATE TABLE IF NOT EXISTS alltime_scores (
+        name TEXT NOT NULL,
+        script TEXT NOT NULL,
+        mode TEXT NOT NULL DEFAULT 'sentences',
+        board TEXT NOT NULL DEFAULT 'daily',
+        wpm INTEGER NOT NULL,
+        acc INTEGER NOT NULL,
+        submitted_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (name, script, mode, board)
+    )
+"""
 
 
 @contextmanager
@@ -50,29 +91,41 @@ def get_db():
 
 def init_db():
     with get_db() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS daily_scores (
-                name TEXT NOT NULL,
-                script TEXT NOT NULL,
-                mode TEXT NOT NULL DEFAULT 'sentences',
-                date TEXT NOT NULL,
-                wpm INTEGER NOT NULL,
-                acc INTEGER NOT NULL,
-                submitted_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (name, script, mode, date)
+        cols = [
+            r["name"]
+            for r in conn.execute("PRAGMA table_info(daily_scores)").fetchall()
+        ]
+        if cols and "board" not in cols:
+            # Pre-existing DB from before boards existed (only ever held
+            # "daily" rows). Migrate it onto the new primary key that
+            # includes `board`, so speedtest/ghost rows for the same
+            # name+script+mode+date can't collide with daily ones.
+            conn.execute("ALTER TABLE daily_scores RENAME TO daily_scores_old")
+            conn.execute(_DAILY_SCHEMA)
+            conn.execute(
+                """
+                INSERT INTO daily_scores (name, script, mode, board, date, wpm, acc, submitted_at)
+                SELECT name, script, mode, 'daily', date, wpm, acc, submitted_at FROM daily_scores_old
+                """
             )
-            """
-        )
+            conn.execute("DROP TABLE daily_scores_old")
+        else:
+            conn.execute(_DAILY_SCHEMA)
+        conn.execute(_ALLTIME_SCHEMA)
 
 
 init_db()
 
+_BOARD_PATTERN = "^(" + "|".join(BOARDS) + ")$"
+_MODE_PATTERN = "^(" + "|".join(MODES) + ")$"
+_SCRIPT_PATTERN = "^(" + "|".join(SCRIPTS) + ")$"
+
 
 class ScoreSubmission(BaseModel):
     name: str = Field(min_length=1, max_length=20)
-    script: str = Field(pattern="^(en|ne)$")
-    mode: str = Field(default="sentences", pattern="^(words|sentences|paragraph)$")
+    script: str = Field(pattern=_SCRIPT_PATTERN)
+    mode: str = Field(default="sentences", pattern=_MODE_PATTERN)
+    board: str = Field(default="daily", pattern=_BOARD_PATTERN)
     date: str = Field(min_length=10, max_length=10)  # YYYY-MM-DD
     wpm: int = Field(ge=0, le=400)
     acc: int = Field(ge=0, le=100)
@@ -84,49 +137,116 @@ def _clean_name(name: str) -> str:
     return cleaned[:20] or "anonymous"
 
 
+def _check_board(board: str) -> None:
+    if board not in BOARDS:
+        raise HTTPException(400, f"board must be one of {BOARDS}")
+
+
+def _check_mode(mode: str) -> None:
+    if mode not in MODES:
+        raise HTTPException(400, f"mode must be one of {MODES}")
+
+
+def _check_script(script: str) -> None:
+    if script not in SCRIPTS:
+        raise HTTPException(400, f"script must be one of {SCRIPTS}")
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True, "today": date.today().isoformat()}
 
 
-@app.post("/api/daily-score")
+@app.post("/api/score")
 def submit_score(payload: ScoreSubmission):
     name = _clean_name(payload.name)
     with get_db() as conn:
+        # Best score for that specific day (the "daily" board, reset each day).
         existing = conn.execute(
-            "SELECT wpm FROM daily_scores WHERE name = ? AND script = ? AND mode = ? AND date = ?",
-            (name, payload.script, payload.mode, payload.date),
+            "SELECT wpm FROM daily_scores WHERE name = ? AND script = ? AND mode = ? AND board = ? AND date = ?",
+            (name, payload.script, payload.mode, payload.board, payload.date),
         ).fetchone()
         if existing is None:
             conn.execute(
-                "INSERT INTO daily_scores (name, script, mode, date, wpm, acc) VALUES (?, ?, ?, ?, ?, ?)",
-                (name, payload.script, payload.mode, payload.date, payload.wpm, payload.acc),
+                "INSERT INTO daily_scores (name, script, mode, board, date, wpm, acc) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (name, payload.script, payload.mode, payload.board, payload.date, payload.wpm, payload.acc),
             )
         elif payload.wpm > existing["wpm"]:
-            # Only the first attempt is meant to be "official" client-side,
-            # but if a higher score ever does arrive, keep the best one.
             conn.execute(
-                "UPDATE daily_scores SET wpm = ?, acc = ? WHERE name = ? AND script = ? AND mode = ? AND date = ?",
-                (payload.wpm, payload.acc, name, payload.script, payload.mode, payload.date),
+                "UPDATE daily_scores SET wpm = ?, acc = ? WHERE name = ? AND script = ? AND mode = ? AND board = ? AND date = ?",
+                (payload.wpm, payload.acc, name, payload.script, payload.mode, payload.board, payload.date),
+            )
+
+        # Best score ever (the "all-time" board).
+        best = conn.execute(
+            "SELECT wpm FROM alltime_scores WHERE name = ? AND script = ? AND mode = ? AND board = ?",
+            (name, payload.script, payload.mode, payload.board),
+        ).fetchone()
+        if best is None:
+            conn.execute(
+                "INSERT INTO alltime_scores (name, script, mode, board, wpm, acc) VALUES (?, ?, ?, ?, ?, ?)",
+                (name, payload.script, payload.mode, payload.board, payload.wpm, payload.acc),
+            )
+        elif payload.wpm > best["wpm"]:
+            conn.execute(
+                "UPDATE alltime_scores SET wpm = ?, acc = ? WHERE name = ? AND script = ? AND mode = ? AND board = ?",
+                (payload.wpm, payload.acc, name, payload.script, payload.mode, payload.board),
             )
     return {"ok": True}
 
 
-@app.get("/api/daily-leaderboard")
-def leaderboard(date: str, script: str = "en", mode: str = "sentences", limit: int = 10):
-    if script not in ("en", "ne"):
-        raise HTTPException(400, "script must be 'en' or 'ne'")
-    if mode not in ("words", "sentences", "paragraph"):
-        raise HTTPException(400, "mode must be 'words', 'sentences', or 'paragraph'")
+@app.get("/api/leaderboard")
+def leaderboard(date: str, script: str = "en", mode: str = "sentences", board: str = "daily", limit: int = 10):
+    """Best score per person for one specific day."""
+    _check_script(script)
+    _check_mode(mode)
+    _check_board(board)
     limit = max(1, min(limit, 50))
     with get_db() as conn:
         rows = conn.execute(
             """
             SELECT name, wpm, acc FROM daily_scores
-            WHERE date = ? AND script = ? AND mode = ?
+            WHERE date = ? AND script = ? AND mode = ? AND board = ?
             ORDER BY wpm DESC
             LIMIT ?
             """,
-            (date, script, mode, limit),
+            (date, script, mode, board, limit),
         ).fetchall()
     return [{"name": r["name"], "wpm": r["wpm"], "acc": r["acc"]} for r in rows]
+
+
+@app.get("/api/leaderboard/alltime")
+def alltime_leaderboard(script: str = "en", mode: str = "sentences", board: str = "daily", limit: int = 10):
+    """Best score per person ever, for a given board/script/mode."""
+    _check_script(script)
+    _check_mode(mode)
+    _check_board(board)
+    limit = max(1, min(limit, 50))
+    with get_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT name, wpm, acc FROM alltime_scores
+            WHERE script = ? AND mode = ? AND board = ?
+            ORDER BY wpm DESC
+            LIMIT ?
+            """,
+            (script, mode, board, limit),
+        ).fetchall()
+    return [{"name": r["name"], "wpm": r["wpm"], "acc": r["acc"]} for r in rows]
+
+
+# ---- Backward-compatible aliases (pre-boards API shape) ---------------------
+# Kept in case anything still calls the old, daily-challenge-only paths.
+# New code (and the current frontend) should use /api/score and
+# /api/leaderboard[/alltime] with an explicit `board`.
+
+
+@app.post("/api/daily-score")
+def submit_daily_score_legacy(payload: ScoreSubmission):
+    payload.board = "daily"
+    return submit_score(payload)
+
+
+@app.get("/api/daily-leaderboard")
+def daily_leaderboard_legacy(date: str, script: str = "en", mode: str = "sentences", limit: int = 10):
+    return leaderboard(date=date, script=script, mode=mode, board="daily", limit=limit)
