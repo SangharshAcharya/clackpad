@@ -17,6 +17,8 @@
     --muted-2: #43464e;
     --accent: #e8a33d;
     --accent-dim: rgba(232, 163, 61, 0.14);
+    --accent-text: #1b1d22;
+    --accent-border: #b87a1f;
     --correct: #7fb77e;
     --error: #d9686b;
     --error-bg: rgba(217, 104, 107, 0.16);
@@ -32,6 +34,8 @@
     --muted-2: #d8d4c9;
     --accent: #b8791f;
     --accent-dim: rgba(184, 121, 31, 0.14);
+    --accent-text: #1b1d22;
+    --accent-border: #845716;
     --correct: #2f8f45;
     --error: #c94447;
     --error-bg: rgba(201, 68, 71, 0.12);
@@ -601,9 +605,9 @@
   .key:hover { color: var(--text); }
 
   .key.active {
-    color: #1b1d22;
+    color: var(--accent-text);
     background: var(--accent);
-    border-bottom-color: #b87a1f;
+    border-bottom-color: var(--accent-border);
   }
 
   .key:focus-visible {
@@ -3881,7 +3885,7 @@
 
   // ---- Custom theme: derive a full palette from just two picked colors ----
   var CUSTOM_VARS = ['--bg', '--surface', '--surface-2', '--text', '--muted', '--muted-2',
-    '--accent', '--accent-dim', '--correct', '--error', '--error-bg', '--correct-bg'];
+    '--accent', '--accent-dim', '--accent-text', '--accent-border', '--correct', '--error', '--error-bg', '--correct-bg'];
 
   function hexToRgb(hex) {
     hex = hex.replace('#', '');
@@ -3913,20 +3917,131 @@
     return 'rgba(' + c.r + ',' + c.g + ',' + c.b + ',' + alpha + ')';
   }
 
+  // HSL conversion — used instead of blending raw RGB channels toward
+  // white/black. Direct RGB blending doesn't give consistent *perceived*
+  // contrast across hues: perceived brightness is dominated by the green
+  // channel (per the luminance weights above), so a saturated color with
+  // little or no green — magenta, for instance — throws that math off and
+  // produces muted/dim tiers that look far lower-contrast than intended.
+  // Working in HSL and adjusting lightness directly (with saturation capped
+  // for text tiers so they don't fight the background's hue) keeps contrast
+  // predictable no matter how saturated or which hue the picked color is.
+  function hexToHsl(hex) {
+    var c = hexToRgb(hex);
+    var r = c.r / 255, g = c.g / 255, b = c.b / 255;
+    var max = Math.max(r, g, b), min = Math.min(r, g, b);
+    var h, s, l = (max + min) / 2;
+    if (max === min) {
+      h = s = 0;
+    } else {
+      var d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      switch (max) {
+        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+        case g: h = (b - r) / d + 2; break;
+        default: h = (r - g) / d + 4; break;
+      }
+      h /= 6;
+    }
+    return { h: h * 360, s: s * 100, l: l * 100 };
+  }
+  function hslToHex(h, s, l) {
+    h = ((h % 360) + 360) % 360 / 360;
+    s = Math.max(0, Math.min(100, s)) / 100;
+    l = Math.max(0, Math.min(100, l)) / 100;
+    var r, g, b;
+    if (s === 0) {
+      r = g = b = l;
+    } else {
+      var hue2rgb = function (p, q, t) {
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1 / 6) return p + (q - p) * 6 * t;
+        if (t < 1 / 2) return q;
+        if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+        return p;
+      };
+      var q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+      var p = 2 * l - q;
+      r = hue2rgb(p, q, h + 1 / 3);
+      g = hue2rgb(p, q, h);
+      b = hue2rgb(p, q, h - 1 / 3);
+    }
+    return rgbToHex(r * 255, g * 255, b * 255);
+  }
+  function clampL(l) { return Math.max(0, Math.min(100, l)); }
+
+  // Binary-search for the lightness (at a fixed hue/saturation) that hits a
+  // target WCAG contrast ratio against the background — rather than a fixed
+  // lightness offset. A fixed offset works fine for ordinary hues, but a
+  // vivid, mid-lightness color (bright magenta, saturated cyan, etc.) can
+  // read as "dark" by WCAG's green-weighted luminance while its raw HSL
+  // lightness sits near 45–50%, so a flat "+20 lightness points" offset
+  // ends up nowhere near enough contrast. Searching directly for the
+  // lightness that actually achieves the target ratio is correct for every
+  // hue/saturation combination, not just the common ones.
+  function lightnessForContrast(h, s, bgHex, target, preferLighter) {
+    var bgL = hexToHsl(bgHex).l;
+    var lo = preferLighter ? bgL : 0;
+    var hi = preferLighter ? 100 : bgL;
+    var best = hslToHex(h, s, preferLighter ? 100 : 0);
+    for (var i = 0; i < 25; i++) {
+      var mid = (lo + hi) / 2;
+      var candidate = hslToHex(h, s, mid);
+      var ratio = wcagContrast(candidate, bgHex);
+      if (ratio < target) {
+        if (preferLighter) lo = mid; else hi = mid;
+      } else {
+        best = candidate;
+        if (preferLighter) hi = mid; else lo = mid;
+      }
+    }
+    return best;
+  }
+  function wcagContrast(hexA, hexB) {
+    var la = relativeLuminance(hexA), lb = relativeLuminance(hexB);
+    var lighter = Math.max(la, lb), darker = Math.min(la, lb);
+    return (lighter + 0.05) / (darker + 0.05);
+  }
+
   function applyCustomColors(bgHex, accentHex) {
     var isDark = relativeLuminance(bgHex) < 0.5;
-    var white = '#ffffff', black = '#000000';
-    var textHex = isDark ? mixHex(bgHex, white, 0.92) : mixHex(bgHex, black, 0.88);
-    var surfaceHex = mixHex(bgHex, isDark ? white : black, 0.05);
-    var surface2Hex = mixHex(bgHex, isDark ? white : black, 0.10);
-    var mutedHex = mixHex(bgHex, textHex, 0.45);
-    var muted2Hex = mixHex(bgHex, textHex, 0.18);
+    var bgHsl = hexToHsl(bgHex);
+
+    // Text/muted tiers: keep a faint tint of the background's hue but cap
+    // saturation low so a vivid bg hue doesn't fight legibility, then pick
+    // lightness by guaranteed contrast ratio (WCAG-style targets — roughly
+    // "large text AA", "normal text AA", and "just barely visible" for the
+    // three tiers) instead of a flat lightness offset, so it holds up for
+    // any hue/saturation the person picks, not just muted/typical ones.
+    var tintS = Math.min(bgHsl.s, 14);
+    var textHex = lightnessForContrast(bgHsl.h, tintS, bgHex, 10, isDark);
+    var mutedHex = lightnessForContrast(bgHsl.h, tintS, bgHex, 4.5, isDark);
+    var muted2Hex = lightnessForContrast(bgHsl.h, Math.min(bgHsl.s, 20), bgHex, 1.6, isDark);
+
+    // Surface tiers only need a subtle, guaranteed-visible lift off the
+    // background — not text-level contrast — so the targets are much
+    // smaller, just enough that a panel never fully blends into the page.
+    var surfaceHex = lightnessForContrast(bgHsl.h, bgHsl.s, bgHex, 1.10, isDark);
+    var surface2Hex = lightnessForContrast(bgHsl.h, bgHsl.s, bgHex, 1.22, isDark);
+
+    // Text/border that sits ON TOP of the accent color itself (the "active"
+    // tab/button pill) — this needs to react to the accent's own lightness,
+    // not the background's, or a dark accent pick makes its own label
+    // unreadable. Pick whichever of black/white contrasts better, and a
+    // border shade nudged away from the accent's own lightness.
+    var accentIsDark = relativeLuminance(accentHex) < 0.5;
+    var accentTextHex = wcagContrast(accentHex, '#000000') >= wcagContrast(accentHex, '#ffffff') ? '#000000' : '#ffffff';
+    var accentHsl = hexToHsl(accentHex);
+    var accentBorderHex = lightnessForContrast(accentHsl.h, accentHsl.s, accentHex, 1.3, accentIsDark);
+
     var correctHex = isDark ? '#7fb77e' : '#2f8f45';
     var errorHex = isDark ? '#d9686b' : '#c94447';
     var vars = {
       '--bg': bgHex, '--surface': surfaceHex, '--surface-2': surface2Hex,
       '--text': textHex, '--muted': mutedHex, '--muted-2': muted2Hex,
       '--accent': accentHex, '--accent-dim': hexToRgba(accentHex, 0.14),
+      '--accent-text': accentTextHex, '--accent-border': accentBorderHex,
       '--correct': correctHex, '--error': errorHex,
       '--error-bg': hexToRgba(errorHex, isDark ? 0.16 : 0.12),
       '--correct-bg': hexToRgba(correctHex, isDark ? 0.15 : 0.12)
