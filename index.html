@@ -891,6 +891,12 @@
         <button class="key active" data-lbmode="sentences" data-i18n="dailyModeSentences">sentences</button>
         <button class="key" data-lbmode="paragraph" data-i18n="dailyModeParagraph">paragraph</button>
       </div>
+      <div class="durations hidden" role="group" aria-label="Leaderboard duration" id="lb-duration-row">
+        <button class="key" data-lbduration="15">15s</button>
+        <button class="key active" data-lbduration="30">30s</button>
+        <button class="key" data-lbduration="60">60s</button>
+        <button class="key" data-lbduration="120">120s</button>
+      </div>
     </div>
     <div class="stats" id="stats-row">
       <div class="stat"><span class="stat-label" data-i18n="statTime">time</span><span class="stat-value" id="stat-time">30</span></div>
@@ -2161,27 +2167,29 @@
   // ---- Generic score submission + fetch, shared by all three boards -------
   // (daily challenge, speed test, ghost race). Each board tracks both a
   // "today" leaderboard (resets daily) and an "all-time" high-score board.
+  // `durationVal` only matters for the speed test board — pass 0 for
+  // daily/ghost, where there's no time-limit axis to compare on.
 
-  function submitBoardScore(board, script, modeVal, wpm, acc, onSuccess) {
+  function submitBoardScore(board, script, modeVal, durationVal, wpm, acc, onSuccess) {
     if (!API_BASE) return;
     var name = getPlayerName();
     if (!name) return;
     fetch(API_BASE + '/api/score', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name, script: script, mode: modeVal, board: board, date: todayStr(0), wpm: wpm, acc: acc })
+      body: JSON.stringify({ name: name, script: script, mode: modeVal, board: board, duration: durationVal, date: todayStr(0), wpm: wpm, acc: acc })
     }).then(function () {
       if (onSuccess) onSuccess();
     }).catch(function () {});
   }
 
-  function fetchBoardLeaderboard(board, script, modeVal, scope, limit, cb) {
+  function fetchBoardLeaderboard(board, script, modeVal, durationVal, scope, limit, cb) {
     if (!API_BASE) { cb([]); return; }
     var url = scope === 'alltime'
       ? API_BASE + '/api/leaderboard/alltime?board=' + encodeURIComponent(board) +
-        '&script=' + encodeURIComponent(script) + '&mode=' + encodeURIComponent(modeVal) + '&limit=' + limit
+        '&script=' + encodeURIComponent(script) + '&mode=' + encodeURIComponent(modeVal) + '&duration=' + durationVal + '&limit=' + limit
       : API_BASE + '/api/leaderboard?date=' + encodeURIComponent(todayStr(0)) + '&board=' + encodeURIComponent(board) +
-        '&script=' + encodeURIComponent(script) + '&mode=' + encodeURIComponent(modeVal) + '&limit=' + limit;
+        '&script=' + encodeURIComponent(script) + '&mode=' + encodeURIComponent(modeVal) + '&duration=' + durationVal + '&limit=' + limit;
     fetch(url).then(function (r) { return r.json(); }).then(function (rows) {
       cb(rows || []);
     }).catch(function () { cb([]); });
@@ -2197,7 +2205,7 @@
   }
 
   function submitDailyScore(wpm, acc) {
-    submitBoardScore('daily', gameScript, dailyMode, wpm, acc, function () {
+    submitBoardScore('daily', gameScript, dailyMode, 0, wpm, acc, function () {
       try {
         var dKey = dailyChallengeKey();
         var rec = JSON.parse(localStorage.getItem(dKey) || 'null');
@@ -2225,7 +2233,7 @@
     var lbEl = document.getElementById('daily-leaderboard');
     if (!lbEl) return;
     if (!API_BASE) { lbEl.classList.add('hidden'); return; }
-    fetchBoardLeaderboard('daily', gameScript, dailyMode, 'today', 10, function (rows) {
+    fetchBoardLeaderboard('daily', gameScript, dailyMode, 0, 'today', 10, function (rows) {
       renderLeaderboard(rows);
     });
   }
@@ -2248,13 +2256,13 @@
     if (!el) return;
     if (!API_BASE) { el.classList.add('hidden'); el.innerHTML = ''; return; }
     var me = getPlayerName();
-    fetchBoardLeaderboard('speedtest', contentScript, mode, 'today', 10, function (todayRows) {
-      fetchBoardLeaderboard('speedtest', contentScript, mode, 'alltime', 10, function (allRows) {
+    fetchBoardLeaderboard('speedtest', contentScript, mode, duration, 'today', 10, function (todayRows) {
+      fetchBoardLeaderboard('speedtest', contentScript, mode, duration, 'alltime', 10, function (allRows) {
         if (!todayRows.length && !allRows.length) { el.classList.add('hidden'); el.innerHTML = ''; return; }
         el.classList.remove('hidden');
         el.innerHTML =
-          '<div class="mini-lb-section"><div class="free-reference-label">Today\u2019s speed test leaderboard</div>' + renderLbRows(todayRows, me) + '</div>' +
-          '<div class="mini-lb-section"><div class="free-reference-label">All-time best</div>' + renderLbRows(allRows, me) + '</div>';
+          '<div class="mini-lb-section"><div class="free-reference-label">Today\u2019s ' + duration + 's speed test leaderboard</div>' + renderLbRows(todayRows, me) + '</div>' +
+          '<div class="mini-lb-section"><div class="free-reference-label">All-time best (' + duration + 's)</div>' + renderLbRows(allRows, me) + '</div>';
       });
     });
   }
@@ -2270,8 +2278,8 @@
     if (!el) return;
     if (!API_BASE) { el.classList.add('hidden'); el.innerHTML = ''; return; }
     var me = getPlayerName();
-    fetchBoardLeaderboard('ghost', gameScript, GHOST_MODE, 'today', 10, function (todayRows) {
-      fetchBoardLeaderboard('ghost', gameScript, GHOST_MODE, 'alltime', 10, function (allRows) {
+    fetchBoardLeaderboard('ghost', gameScript, GHOST_MODE, 0, 'today', 10, function (todayRows) {
+      fetchBoardLeaderboard('ghost', gameScript, GHOST_MODE, 0, 'alltime', 10, function (allRows) {
         if (!todayRows.length && !allRows.length) { el.classList.add('hidden'); el.innerHTML = ''; return; }
         el.classList.remove('hidden');
         el.innerHTML =
@@ -2286,6 +2294,7 @@
   var lbScope = 'today';
   var lbScript = 'en';
   var lbMode = 'sentences';
+  var lbDuration = 30;
 
   function fetchFullLeaderboard() {
     var listEl = document.getElementById('leaderboard-full-list');
@@ -2301,7 +2310,8 @@
     }
     offlineEl.classList.add('hidden');
     var modeForFetch = lbBoard === 'ghost' ? GHOST_MODE : lbMode;
-    fetchBoardLeaderboard(lbBoard, lbScript, modeForFetch, lbScope, 50, function (rows) {
+    var durationForFetch = lbBoard === 'speedtest' ? lbDuration : 0;
+    fetchBoardLeaderboard(lbBoard, lbScript, modeForFetch, durationForFetch, lbScope, 50, function (rows) {
       renderFullLeaderboard(rows);
     });
   }
@@ -3016,7 +3026,7 @@
           saveGhost(wpm, ghostTrackLive);
           document.getElementById('game-info').textContent = 'New ghost saved at ' + wpm + ' wpm.';
         }
-        submitBoardScore('ghost', gameScript, GHOST_MODE, wpm, acc, refreshGhostLeaderboard);
+        submitBoardScore('ghost', gameScript, GHOST_MODE, 0, wpm, acc, refreshGhostLeaderboard);
       } else if (gameMode === 'daily') {
         var dKey = dailyChallengeKey();
         var already = null;
@@ -3036,7 +3046,7 @@
       document.getElementById('stat-best').textContent = bestByDuration[duration];
       badgeState = isNewBest ? 'best' : 'default';
       logSession(wpm, acc, 'speed', correctCount, consistency);
-      submitBoardScore('speedtest', contentScript, mode, wpm, acc, refreshSpeedLeaderboard);
+      submitBoardScore('speedtest', contentScript, mode, duration, wpm, acc, refreshSpeedLeaderboard);
     }
     refreshBadge();
 
@@ -3490,6 +3500,7 @@
 
   function applyLbBoardVisibility() {
     var modeRow = document.getElementById('lb-mode-row');
+    var durationRow = document.getElementById('lb-duration-row');
     if (!modeRow) return;
     var paragraphBtn = modeRow.querySelector('[data-lbmode="paragraph"]');
     if (lbBoard === 'ghost') {
@@ -3502,12 +3513,14 @@
         lbModeButtons.forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-lbmode') === 'sentences'); });
       }
     }
+    if (durationRow) durationRow.classList.toggle('hidden', lbBoard !== 'speedtest');
   }
 
   function updateLeaderboardTitle() {
     var titleEl = document.getElementById('leaderboard-wrap-title');
     if (!titleEl) return;
     var boardLabel = lbBoard === 'daily' ? t('gameDaily') : (lbBoard === 'speedtest' ? t('lbBoardSpeedtest') : t('gameGhost'));
+    if (lbBoard === 'speedtest') boardLabel += ' (' + lbDuration + 's)';
     var scopeLabel = lbScope === 'alltime' ? t('lbScopeAllTime') : t('lbScopeToday');
     titleEl.textContent = boardLabel + ' \u2014 ' + scopeLabel;
   }
@@ -3549,6 +3562,16 @@
       lbModeButtons.forEach(function (b) { b.classList.remove('active'); });
       btn.classList.add('active');
       lbMode = btn.getAttribute('data-lbmode');
+      fetchFullLeaderboard();
+    });
+  });
+
+  var lbDurationButtons = document.querySelectorAll('#leaderboard-panel .key[data-lbduration]');
+  lbDurationButtons.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      lbDurationButtons.forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      lbDuration = parseInt(btn.getAttribute('data-lbduration'), 10);
       fetchFullLeaderboard();
     });
   });
