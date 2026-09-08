@@ -246,6 +246,47 @@ def alltime_leaderboard(script: str = "en", mode: str = "sentences", board: str 
     return [{"name": r["name"], "wpm": r["wpm"], "acc": r["acc"]} for r in rows]
 
 
+@app.get("/api/leaderboard/combined")
+def combined_leaderboard(script: str = "en", scope: str = "today", date: str = "", limit: int = 50):
+    """Every board/mode/duration merged into one list, sorted by wpm, each
+    row tagged with which board/mode/duration it came from — for the
+    Leaderboard tab's "all" view where you don't pick a specific game mode."""
+    _check_script(script)
+    if scope not in ("today", "alltime"):
+        raise HTTPException(400, "scope must be 'today' or 'alltime'")
+    limit = max(1, min(limit, 100))
+    with get_db() as conn:
+        if scope == "alltime":
+            rows = conn.execute(
+                """
+                SELECT name, wpm, acc, board, mode, duration FROM alltime_scores
+                WHERE script = ?
+                ORDER BY wpm DESC
+                LIMIT ?
+                """,
+                (script, limit),
+            ).fetchall()
+        else:
+            if not date:
+                raise HTTPException(400, "date is required when scope='today'")
+            rows = conn.execute(
+                """
+                SELECT name, wpm, acc, board, mode, duration FROM daily_scores
+                WHERE script = ? AND date = ?
+                ORDER BY wpm DESC
+                LIMIT ?
+                """,
+                (script, date, limit),
+            ).fetchall()
+    return [
+        {
+            "name": r["name"], "wpm": r["wpm"], "acc": r["acc"],
+            "board": r["board"], "mode": r["mode"], "duration": r["duration"],
+        }
+        for r in rows
+    ]
+
+
 # ---- Backward-compatible aliases (pre-boards API shape) ---------------------
 # Kept in case anything still calls the old, daily-challenge-only paths.
 # New code (and the current frontend) should use /api/score and
