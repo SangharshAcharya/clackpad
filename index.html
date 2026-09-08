@@ -792,6 +792,8 @@
       <div class="durations hidden" role="group" aria-label="Custom theme colors" id="custom-theme-row">
         <label class="custom-color-label"><span data-i18n="customThemeBg">background</span><input type="color" id="custom-bg-input" value="#1b1d22"></label>
         <label class="custom-color-label"><span data-i18n="customThemeAccent">accent</span><input type="color" id="custom-accent-input" value="#e8a33d"></label>
+        <label class="custom-color-label"><span data-i18n="customThemeText">text</span><input type="color" id="custom-textcolor-input" value="#e7e5de"></label>
+        <button class="key" id="custom-textcolor-auto-btn" data-i18n="customThemeTextAuto" title="Re-derive the text color automatically from the background">auto</button>
       </div>
       <button class="key" id="sound-toggle" data-i18n="soundOff">sound: off</button>
       <button class="key" id="blind-toggle" data-i18n="blindOff">blind mode: off</button>
@@ -1362,6 +1364,8 @@
     themeCustom: { en: "custom", ne: "आफ्नै" },
     customThemeBg: { en: "background", ne: "पृष्ठभूमि" },
     customThemeAccent: { en: "accent", ne: "मुख्य रंग" },
+    customThemeText: { en: "text", ne: "पाठ" },
+    customThemeTextAuto: { en: "auto", ne: "स्वचालित" },
     topicMixed: { en: "all topics", ne: "सबै विषयहरू" },
     topicEcology: { en: "Ecology & biodiversity", ne: "पारिस्थितिकी र जैविक विविधता" },
     topicEarth: { en: "Earth science & geology", ne: "पृथ्वी विज्ञान र भूविज्ञान" },
@@ -4004,20 +4008,21 @@
     return (lighter + 0.05) / (darker + 0.05);
   }
 
-  function applyCustomColors(bgHex, accentHex) {
+  function applyCustomColors(bgHex, accentHex, manualTextHex) {
     var isDark = relativeLuminance(bgHex) < 0.5;
     var bgHsl = hexToHsl(bgHex);
 
-    // Text/muted tiers: keep a faint tint of the background's hue but cap
-    // saturation low so a vivid bg hue doesn't fight legibility, then pick
-    // lightness by guaranteed contrast ratio (WCAG-style targets — roughly
-    // "large text AA", "normal text AA", and "just barely visible" for the
-    // three tiers) instead of a flat lightness offset, so it holds up for
-    // any hue/saturation the person picks, not just muted/typical ones.
-    var tintS = Math.min(bgHsl.s, 14);
-    var textHex = lightnessForContrast(bgHsl.h, tintS, bgHex, 10, isDark);
-    var mutedHex = lightnessForContrast(bgHsl.h, tintS, bgHex, 4.5, isDark);
-    var muted2Hex = lightnessForContrast(bgHsl.h, Math.min(bgHsl.s, 20), bgHex, 1.6, isDark);
+    // Text/muted tiers: if the person picked their own text color, honor it
+    // exactly for --text, and derive muted/muted-2 from *that* color's hue
+    // (not the background's) so they still relate to what's on screen. If
+    // they haven't picked one, derive text the same contrast-safe way as
+    // before, from the background's hue with saturation capped so a vivid
+    // bg hue doesn't fight legibility.
+    var textSourceHsl = manualTextHex ? hexToHsl(manualTextHex) : bgHsl;
+    var tintS = manualTextHex ? textSourceHsl.s : Math.min(bgHsl.s, 14);
+    var textHex = manualTextHex || lightnessForContrast(bgHsl.h, tintS, bgHex, 10, isDark);
+    var mutedHex = lightnessForContrast(textSourceHsl.h, tintS, bgHex, 4.5, isDark);
+    var muted2Hex = lightnessForContrast(textSourceHsl.h, Math.min(textSourceHsl.s, 20), bgHex, 1.6, isDark);
 
     // Surface tiers only need a subtle, guaranteed-visible lift off the
     // background — not text-level contrast — so the targets are much
@@ -4047,6 +4052,7 @@
       '--correct-bg': hexToRgba(correctHex, isDark ? 0.15 : 0.12)
     };
     Object.keys(vars).forEach(function (k) { document.body.style.setProperty(k, vars[k]); });
+    return textHex;
   }
 
   function clearCustomColors() {
@@ -4055,11 +4061,20 @@
 
   var customBg = '#1b1d22';
   var customAccent = '#e8a33d';
+  var customText = '';
+  var customTextManual = false;
   try { customBg = localStorage.getItem('clackpad_custom_bg') || customBg; } catch (e) {}
   try { customAccent = localStorage.getItem('clackpad_custom_accent') || customAccent; } catch (e) {}
+  try { customTextManual = localStorage.getItem('clackpad_custom_text_manual') === '1'; } catch (e) {}
+  try { customText = (customTextManual && localStorage.getItem('clackpad_custom_text')) || ''; } catch (e) {}
 
   var themeButtons = document.querySelectorAll('header .key[data-theme]');
   var customThemeRow = document.getElementById('custom-theme-row');
+  var customTextColorInput = document.getElementById('custom-textcolor-input');
+  function refreshCustomColors() {
+    var effectiveText = applyCustomColors(customBg, customAccent, customTextManual ? customText : null);
+    if (customTextColorInput && !customTextManual) customTextColorInput.value = effectiveText;
+  }
   function applyTheme(themeName) {
     document.body.classList.toggle('light', themeName === 'light');
     document.body.classList.toggle('custom', themeName === 'custom');
@@ -4068,7 +4083,7 @@
     });
     if (customThemeRow) customThemeRow.classList.toggle('hidden', themeName !== 'custom');
     if (themeName === 'custom') {
-      applyCustomColors(customBg, customAccent);
+      refreshCustomColors();
     } else {
       clearCustomColors();
     }
@@ -4087,7 +4102,7 @@
     customBgInput.addEventListener('input', function () {
       customBg = customBgInput.value;
       try { localStorage.setItem('clackpad_custom_bg', customBg); } catch (e) {}
-      if (document.body.classList.contains('custom')) applyCustomColors(customBg, customAccent);
+      if (document.body.classList.contains('custom')) refreshCustomColors();
     });
   }
   if (customAccentInput) {
@@ -4095,7 +4110,31 @@
     customAccentInput.addEventListener('input', function () {
       customAccent = customAccentInput.value;
       try { localStorage.setItem('clackpad_custom_accent', customAccent); } catch (e) {}
-      if (document.body.classList.contains('custom')) applyCustomColors(customBg, customAccent);
+      if (document.body.classList.contains('custom')) refreshCustomColors();
+    });
+  }
+  if (customTextColorInput) {
+    if (customTextManual) customTextColorInput.value = customText;
+    customTextColorInput.addEventListener('input', function () {
+      customText = customTextColorInput.value;
+      customTextManual = true;
+      try {
+        localStorage.setItem('clackpad_custom_text', customText);
+        localStorage.setItem('clackpad_custom_text_manual', '1');
+      } catch (e) {}
+      if (document.body.classList.contains('custom')) refreshCustomColors();
+    });
+  }
+  var customTextAutoBtn = document.getElementById('custom-textcolor-auto-btn');
+  if (customTextAutoBtn) {
+    customTextAutoBtn.addEventListener('click', function () {
+      customTextManual = false;
+      customText = '';
+      try {
+        localStorage.removeItem('clackpad_custom_text');
+        localStorage.setItem('clackpad_custom_text_manual', '0');
+      } catch (e) {}
+      if (document.body.classList.contains('custom')) refreshCustomColors();
     });
   }
 
