@@ -861,7 +861,7 @@
         <button class="key" data-dailymode="paragraph" data-i18n="dailyModeParagraph">paragraph</button>
       </div>
       <div class="durations hidden" role="group" aria-label="Display name" id="player-name-row">
-        <input type="text" id="player-name-input" class="custom-textarea" style="min-height:auto; width:160px; padding:6px 10px; margin:0;" maxlength="20" data-i18n-placeholder="playerNamePlaceholder" placeholder="your name" />
+        <input type="text" id="player-name-input" class="custom-textarea" style="min-height:auto; width:160px; padding:6px 10px; margin:0;" maxlength="20" autocomplete="off" data-i18n-placeholder="playerNamePlaceholder" placeholder="your name" />
       </div>
       <div class="drill-target" id="game-info"></div>
       <div id="daily-leaderboard" class="hidden"></div>
@@ -2074,14 +2074,20 @@
   // exactly as before, purely local.
   var API_BASE = 'https://clackpad.onrender.com';
 
+  // Deliberately NOT persisted in localStorage: the name field should start
+  // blank on every fresh page load (each visit to the link), not carry over
+  // a name from a previous session. It's kept as a plain in-memory variable
+  // so it still works for the rest of *this* page load (e.g. typing a name
+  // after finishing today's run still gets it submitted).
+  var sessionPlayerName = '';
+  try { localStorage.removeItem('clackpad_player_name'); } catch (e) {} // clean up old persisted values
+
   function getPlayerName() {
-    var name = '';
-    try { name = localStorage.getItem('clackpad_player_name') || ''; } catch (e) {}
-    return name;
+    return sessionPlayerName;
   }
 
   function setPlayerName(name) {
-    try { localStorage.setItem('clackpad_player_name', name); } catch (e) {}
+    sessionPlayerName = name;
   }
 
   function submitDailyScore(wpm, acc) {
