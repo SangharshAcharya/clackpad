@@ -55,11 +55,12 @@ def init_db():
             CREATE TABLE IF NOT EXISTS daily_scores (
                 name TEXT NOT NULL,
                 script TEXT NOT NULL,
+                mode TEXT NOT NULL DEFAULT 'sentences',
                 date TEXT NOT NULL,
                 wpm INTEGER NOT NULL,
                 acc INTEGER NOT NULL,
                 submitted_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (name, script, date)
+                PRIMARY KEY (name, script, mode, date)
             )
             """
         )
@@ -71,6 +72,7 @@ init_db()
 class ScoreSubmission(BaseModel):
     name: str = Field(min_length=1, max_length=20)
     script: str = Field(pattern="^(en|ne)$")
+    mode: str = Field(default="sentences", pattern="^(words|sentences|paragraph)$")
     date: str = Field(min_length=10, max_length=10)  # YYYY-MM-DD
     wpm: int = Field(ge=0, le=400)
     acc: int = Field(ge=0, le=100)
@@ -92,37 +94,39 @@ def submit_score(payload: ScoreSubmission):
     name = _clean_name(payload.name)
     with get_db() as conn:
         existing = conn.execute(
-            "SELECT wpm FROM daily_scores WHERE name = ? AND script = ? AND date = ?",
-            (name, payload.script, payload.date),
+            "SELECT wpm FROM daily_scores WHERE name = ? AND script = ? AND mode = ? AND date = ?",
+            (name, payload.script, payload.mode, payload.date),
         ).fetchone()
         if existing is None:
             conn.execute(
-                "INSERT INTO daily_scores (name, script, date, wpm, acc) VALUES (?, ?, ?, ?, ?)",
-                (name, payload.script, payload.date, payload.wpm, payload.acc),
+                "INSERT INTO daily_scores (name, script, mode, date, wpm, acc) VALUES (?, ?, ?, ?, ?, ?)",
+                (name, payload.script, payload.mode, payload.date, payload.wpm, payload.acc),
             )
         elif payload.wpm > existing["wpm"]:
             # Only the first attempt is meant to be "official" client-side,
             # but if a higher score ever does arrive, keep the best one.
             conn.execute(
-                "UPDATE daily_scores SET wpm = ?, acc = ? WHERE name = ? AND script = ? AND date = ?",
-                (payload.wpm, payload.acc, name, payload.script, payload.date),
+                "UPDATE daily_scores SET wpm = ?, acc = ? WHERE name = ? AND script = ? AND mode = ? AND date = ?",
+                (payload.wpm, payload.acc, name, payload.script, payload.mode, payload.date),
             )
     return {"ok": True}
 
 
 @app.get("/api/daily-leaderboard")
-def leaderboard(date: str, script: str = "en", limit: int = 10):
+def leaderboard(date: str, script: str = "en", mode: str = "sentences", limit: int = 10):
     if script not in ("en", "ne"):
         raise HTTPException(400, "script must be 'en' or 'ne'")
+    if mode not in ("words", "sentences", "paragraph"):
+        raise HTTPException(400, "mode must be 'words', 'sentences', or 'paragraph'")
     limit = max(1, min(limit, 50))
     with get_db() as conn:
         rows = conn.execute(
             """
             SELECT name, wpm, acc FROM daily_scores
-            WHERE date = ? AND script = ?
+            WHERE date = ? AND script = ? AND mode = ?
             ORDER BY wpm DESC
             LIMIT ?
             """,
-            (date, script, limit),
+            (date, script, mode, limit),
         ).fetchall()
     return [{"name": r["name"], "wpm": r["wpm"], "acc": r["acc"]} for r in rows]
