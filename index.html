@@ -676,10 +676,24 @@
 
   .hidden-input {
     position: absolute;
-    opacity: 0;
-    pointer-events: none;
-    width: 1px;
-    height: 1px;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: transparent;
+    caret-color: transparent;
+    cursor: text;
+    /* 16px stops iOS Safari auto-zooming the page on focus; a genuinely
+       tappable, normally-sized input (rather than the old 1px/opacity:0/
+       pointer-events:none version) is what actually gets mobile on-screen
+       keyboards to open reliably — several mobile browsers simply refuse
+       to summon the keyboard for inputs styled to look "hidden". */
+    font-size: 16px;
+    z-index: 2;
   }
 
   .prompt {
@@ -3276,43 +3290,21 @@
 
   var groupStack = [];
 
-  function handleKey(e) {
-    if (finished) return;
-
-    if (e.key === 'Backspace') {
-      e.preventDefault();
-      var groupLen = groupStack.length ? groupStack.pop() : 1;
-      while (groupLen-- > 0 && typedIndex > 0) {
-        chars[typedIndex - 1].classList.remove('correct', 'incorrect');
-        updateCaret(typedIndex, typedIndex - 1);
-        typedIndex--;
-      }
-      return;
+  function processBackspaceGroup() {
+    var groupLen = groupStack.length ? groupStack.pop() : 1;
+    while (groupLen-- > 0 && typedIndex > 0) {
+      chars[typedIndex - 1].classList.remove('correct', 'incorrect');
+      updateCaret(typedIndex, typedIndex - 1);
+      typedIndex--;
     }
+  }
 
-    var isNepaliSpeed = isNepaliTypingActive();
-    var typedSeq, physKey = null;
-
-    if (isNepaliSpeed) {
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
-      if (e.key === 'Tab' || e.key === 'Enter' || e.key === 'Delete' || e.key.indexOf('Arrow') === 0) return;
-      physKey = CODE_TO_PHYSICAL[e.code];
-      if (!physKey) return;
-      var entry = NEPALI_MAP[physKey];
-      if (!entry) return;
-      typedSeq = physKey === ' ' ? ' ' : (e.shiftKey ? entry.shift : entry.normal);
-      e.preventDefault();
-    } else {
-      if (e.key === 'Enter' && chars[typedIndex] && chars[typedIndex].textContent === '\n') {
-        typedSeq = '\n'; // code-typing mode: Enter advances past an embedded newline
-      } else if (e.key.length !== 1) {
-        return; // ignore ctrl keys, arrows, etc.
-      } else {
-        typedSeq = e.key;
-      }
-      e.preventDefault();
-    }
-
+  // Scores a run of characters typed together — a desktop keydown's single
+  // `key`, or (on mobile, see below) a whole burst delivered via an `input`
+  // event at once. Pulled out on its own so both paths share identical
+  // scoring, char-stat tracking, and keyboard-flash behavior.
+  function processTypedSequence(typedSeq, isNepaliSpeed, physKey) {
+    if (finished || !typedSeq) return;
     if (!started) {
       started = true;
       promptEl.style.display = 'none';
@@ -3376,6 +3368,72 @@
       appendMoreWords();
     }
   }
+
+  function handleKey(e) {
+    if (finished) return;
+
+    if (e.key === 'Backspace') {
+      e.preventDefault();
+      processBackspaceGroup();
+      return;
+    }
+
+    var isNepaliSpeed = isNepaliTypingActive();
+    var typedSeq, physKey = null;
+
+    if (isNepaliSpeed) {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === 'Tab' || e.key === 'Enter' || e.key === 'Delete' || e.key.indexOf('Arrow') === 0) return;
+      physKey = CODE_TO_PHYSICAL[e.code];
+      if (!physKey) return;
+      var entry = NEPALI_MAP[physKey];
+      if (!entry) return;
+      typedSeq = physKey === ' ' ? ' ' : (e.shiftKey ? entry.shift : entry.normal);
+      e.preventDefault();
+    } else {
+      if (e.key === 'Enter' && chars[typedIndex] && chars[typedIndex].textContent === '\n') {
+        typedSeq = '\n'; // code-typing mode: Enter advances past an embedded newline
+      } else if (e.key.length !== 1) {
+        return; // ignore ctrl keys, arrows, etc. — on mobile this is most keys,
+                 // which is exactly what lets the input-event fallback below run.
+      } else {
+        typedSeq = e.key;
+      }
+      e.preventDefault();
+    }
+
+    processTypedSequence(typedSeq, isNepaliSpeed, physKey);
+  }
+
+  // ---- Mobile fallback ------------------------------------------------
+  // On-screen keyboards — Android's Gboard especially — frequently don't
+  // report a real `key`/`code` on keydown at all (everything comes through
+  // as "Unidentified"), so the keydown handler above never calls
+  // preventDefault for them and just returns. That means the browser goes
+  // ahead and inserts the character natively, which fires an `input` event
+  // we can read instead. Because keydown only ever *skips* handling when it
+  // didn't already preventDefault, there's no double-counting risk on
+  // desktop — this listener only ever does anything in exactly the cases
+  // the keydown path left alone.
+  //
+  // This only covers English/Latin-script input. Nepali Traditional mode
+  // remaps physical key positions (via e.code) to Devanagari characters —
+  // there's no "physical key" on a touchscreen to remap, so that approach
+  // has no on-screen-keyboard equivalent. Typing Nepali still needs an
+  // actual keyboard (Bluetooth ones on mobile work fine, since they fire
+  // real keydown events).
+  inputEl.addEventListener('input', function (e) {
+    if (finished || isNepaliTypingActive()) { inputEl.value = ''; return; }
+    var inputType = e.inputType || '';
+    if (inputType.indexOf('delete') === 0) {
+      processBackspaceGroup();
+    } else {
+      var data = e.data;
+      if (data == null) data = inputEl.value; // very old browsers without e.data
+      if (data) processTypedSequence(data, false, null);
+    }
+    inputEl.value = '';
+  });
 
   inputEl.addEventListener('keydown', handleKey);
   stageWrap.addEventListener('click', function () {
