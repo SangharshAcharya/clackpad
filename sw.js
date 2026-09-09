@@ -1,11 +1,14 @@
 // Clackpad service worker — app-shell caching so the app opens (and can be
 // typed in) with no network connection once it's been visited once.
 //
-// IMPORTANT: bump CACHE_NAME (e.g. 'clackpad-v2') any time you deploy a real
-// update to index.html. Browsers keep using a cached service worker/cache
-// until the cache name changes, so without bumping this, people could keep
-// seeing an old version indefinitely instead of your update.
-const CACHE_NAME = 'clackpad-v3';
+// IMPORTANT: bump CACHE_NAME (e.g. 'clackpad-v4') any time you change any
+// file this worker caches (icons, manifest, this file itself). Browsers
+// only re-check a service worker file for changes occasionally, and a
+// bumped cache name is what guarantees old cached assets actually get
+// dropped instead of lingering. index.html itself no longer has this
+// problem — see the fetch handler below — but everything in APP_SHELL
+// still does.
+const CACHE_NAME = 'clackpad-v4';
 
 const APP_SHELL = [
   './',
@@ -38,10 +41,6 @@ self.addEventListener('activate', function (event) {
   self.clients.claim();
 });
 
-// Stale-while-revalidate: answer instantly from cache when we have it (so
-// it works offline and feels instant), but also fetch a fresh copy in the
-// background to update the cache for next time — so people aren't stuck on
-// a stale version forever just because the cache name didn't change yet.
 self.addEventListener('fetch', function (event) {
   if (event.request.method !== 'GET') return;
   // Only handle same-origin requests — let cross-origin things (Google
@@ -49,6 +48,28 @@ self.addEventListener('fetch', function (event) {
   // opaque cross-origin responses adds complexity for little benefit here.
   if (new URL(event.request.url).origin !== location.origin) return;
 
+  var acceptHeader = event.request.headers.get('accept') || '';
+  var isHTML = event.request.mode === 'navigate' || acceptHeader.indexOf('text/html') !== -1;
+
+  if (isHTML) {
+    // Network-first for the page itself: always try to get whatever is
+    // actually live right now, so an update you push shows up on the very
+    // next load — no double-refresh, no waiting for a cache-name bump.
+    // Only fall back to the cached copy if there's genuinely no network
+    // (that's what keeps the app usable offline).
+    event.respondWith(
+      fetch(event.request).then(function (response) {
+        var copy = response.clone();
+        caches.open(CACHE_NAME).then(function (cache) { cache.put(event.request, copy); });
+        return response;
+      }).catch(function () { return caches.match(event.request); })
+    );
+    return;
+  }
+
+  // Everything else (icons, manifest, fonts CSS): stale-while-revalidate —
+  // these change rarely, so answering instantly from cache while quietly
+  // refreshing it in the background is the right tradeoff for them.
   event.respondWith(
     caches.match(event.request).then(function (cached) {
       var network = fetch(event.request).then(function (response) {
@@ -62,3 +83,4 @@ self.addEventListener('fetch', function (event) {
     })
   );
 });
+
