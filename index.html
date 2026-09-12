@@ -222,6 +222,34 @@
     white-space: nowrap;
   }
 
+  .global-name-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px 4px 12px;
+    border-radius: 6px;
+    background: var(--accent-dim);
+    border: 1px solid var(--accent);
+  }
+  .global-name-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--accent);
+    white-space: nowrap;
+  }
+  .global-name-input {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    color: var(--text);
+    background: var(--surface);
+    border: none;
+    border-bottom: 2px solid var(--accent);
+    border-radius: 4px;
+    padding: 4px 8px;
+    width: 130px;
+  }
+  .global-name-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
   .lesson-list {
     display: flex;
     flex-wrap: wrap;
@@ -906,6 +934,10 @@
     <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
       <div class="tagline" data-i18n="tagline">Touch-typing practice. No autocorrect to save you.</div>
       <div class="streak-badge" id="streak-badge" title="Daily practice streak">🔥 0</div>
+      <div class="global-name-row hidden" id="global-name-row" title="Used on the shared leaderboards and shown to duel opponents">
+        <span class="global-name-label" data-i18n="globalNameLabel">playing as</span>
+        <input type="text" id="global-name-input" class="global-name-input" maxlength="20" autocomplete="off" data-i18n-placeholder="playerNamePlaceholder" placeholder="your name" />
+      </div>
       <div class="durations" role="group" aria-label="Interface language">
         <button class="key active" data-uilang="en">EN</button>
         <button class="key" data-uilang="ne">NE</button>
@@ -965,9 +997,6 @@
         <option value="policy" data-i18n="topicPolicy">Policy & sustainability</option>
         <option value="urban_energy" data-i18n="topicUrbanEnergy">Urban & energy environment</option>
       </select>
-      <div class="durations hidden" role="group" aria-label="Display name" id="speed-name-row" style="flex-basis:100%;">
-        <input type="text" id="speed-name-input" class="custom-textarea" style="min-height:auto; width:160px; padding:6px 10px; margin:0;" maxlength="20" autocomplete="off" data-i18n-placeholder="playerNamePlaceholder" placeholder="your name" />
-      </div>
       <div id="speed-leaderboard" class="mini-leaderboard hidden" style="flex-basis:100%;"></div>
     </div>
     <div class="weak-panel hidden" id="weak-panel">
@@ -1017,9 +1046,6 @@
         <button class="key" data-dailymode="words" data-i18n="dailyModeWords">words</button>
         <button class="key active" data-dailymode="sentences" data-i18n="dailyModeSentences">sentences</button>
         <button class="key" data-dailymode="paragraph" data-i18n="dailyModeParagraph">paragraph</button>
-      </div>
-      <div class="durations hidden" role="group" aria-label="Display name" id="player-name-row">
-        <input type="text" id="player-name-input" class="custom-textarea" style="min-height:auto; width:160px; padding:6px 10px; margin:0;" maxlength="20" autocomplete="off" data-i18n-placeholder="playerNamePlaceholder" placeholder="your name" />
       </div>
       <div class="drill-target" id="game-info"></div>
       <div id="daily-leaderboard" class="hidden"></div>
@@ -1649,6 +1675,7 @@
     insightsCalendarLabel: { en: "Practice calendar", ne: "अभ्यास पात्रो" },
     insightsBadgesLabel: { en: "Badges", ne: "ब्याजहरू" },
     playerNamePlaceholder: { en: "your name", ne: "तपाईंको नाम" },
+    globalNameLabel: { en: "playing as", ne: "यस नामले खेल्दै" },
     exportReportBtn: { en: "download progress report", ne: "प्रगति रिपोर्ट डाउनलोड गर्नुहोस्" },
     freeCode: { en: "Code", ne: "कोड" },
     footerHtml: {
@@ -2390,15 +2417,13 @@
     return sessionPlayerName;
   }
 
-  // Sets the shared player name and keeps every name field on the page
-  // (speed test, games tab) in sync, since they all submit to the same
-  // set of leaderboards under one identity.
+  // Sets the shared player name and keeps the (single, always-visible)
+  // name field in sync with it — mostly relevant right after page load or
+  // if something else ever sets it programmatically.
   function setPlayerName(name) {
     sessionPlayerName = name;
-    ['player-name-input', 'speed-name-input'].forEach(function (id) {
-      var el = document.getElementById(id);
-      if (el && el.value !== name) el.value = name;
-    });
+    var el = document.getElementById('global-name-input');
+    if (el && el.value !== name) el.value = name;
   }
 
   // ---- Generic score submission + fetch, shared by all three boards -------
@@ -2517,9 +2542,7 @@
   // ---- Speed test mini leaderboard (today + all-time) ----------------------
 
   function refreshSpeedLeaderboard() {
-    var nameRow = document.getElementById('speed-name-row');
     var el = document.getElementById('speed-leaderboard');
-    if (nameRow) nameRow.classList.toggle('hidden', !API_BASE);
     if (!el) return;
     if (!API_BASE) { el.classList.add('hidden'); el.innerHTML = ''; return; }
     var me = getPlayerName();
@@ -2690,7 +2713,6 @@
 
   function renderGameInfo() {
     var el = document.getElementById('game-info');
-    var nameRow = document.getElementById('player-name-row');
     var lbEl = document.getElementById('daily-leaderboard');
     var lengthRow = document.getElementById('daily-length-row');
     var duelPanel = document.getElementById('duel-panel');
@@ -2706,7 +2728,6 @@
       var ghost = loadGhost();
       el.textContent = ghost ? ('Racing your best run: ' + ghost.wpm + ' wpm. Type to begin.') : 'No ghost yet — this run sets the target for next time.';
       el.classList.remove('hidden');
-      if (nameRow) nameRow.classList.toggle('hidden', !API_BASE);
       if (lbEl) lbEl.classList.add('hidden');
       if (lengthRow) lengthRow.classList.add('hidden');
       if (duelLbEl) { duelLbEl.classList.add('hidden'); duelLbEl.innerHTML = ''; }
@@ -2716,7 +2737,6 @@
       if (lengthRow) lengthRow.classList.add('hidden');
       if (lbEl) lbEl.classList.add('hidden');
       if (ghostLbEl) { ghostLbEl.classList.add('hidden'); ghostLbEl.innerHTML = ''; }
-      if (nameRow) nameRow.classList.toggle('hidden', !API_BASE);
       // Only reset the connect UI if we're not already mid-connection/race —
       // renderGameInfo() can get called again just from re-clicking the
       // Games tab, and that shouldn't cancel an active duel.
@@ -2735,7 +2755,6 @@
       el.textContent = existing
         ? ("Today's challenge already completed: " + existing.wpm + ' wpm, ' + existing.acc + '% acc.')
         : "Today's challenge — one official attempt, same text for everyone.";
-      if (nameRow) nameRow.classList.toggle('hidden', !API_BASE);
       if (API_BASE) { trySubmitPendingDaily(); fetchLeaderboard(); }
     }
   }
@@ -4479,21 +4498,19 @@
     fetchLeaderboard();
     refreshSpeedLeaderboard();
     refreshGhostLeaderboard();
+    refreshDuelLeaderboard();
   }
 
-  var playerNameInput = document.getElementById('player-name-input');
-  if (playerNameInput) {
-    playerNameInput.value = getPlayerName();
-    playerNameInput.addEventListener('change', function () {
-      onNameFieldChanged(playerNameInput.value);
-    });
-  }
-
-  var speedNameInput = document.getElementById('speed-name-input');
-  if (speedNameInput) {
-    speedNameInput.value = getPlayerName();
-    speedNameInput.addEventListener('change', function () {
-      onNameFieldChanged(speedNameInput.value);
+  // One name field, always visible in the header regardless of which tab
+  // you're on — it's the identity used everywhere (leaderboards, duel
+  // opponents), so it shouldn't be buried inside just one or two tabs.
+  var globalNameRow = document.getElementById('global-name-row');
+  var globalNameInput = document.getElementById('global-name-input');
+  if (globalNameRow) globalNameRow.classList.toggle('hidden', !API_BASE);
+  if (globalNameInput) {
+    globalNameInput.value = getPlayerName();
+    globalNameInput.addEventListener('change', function () {
+      onNameFieldChanged(globalNameInput.value);
     });
   }
 
