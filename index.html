@@ -298,6 +298,53 @@
   #leaderboard-wrap .lb-header .lb-acc { width: 60px; text-align: right; }
   #leaderboard-wrap .lb-row { font-size: 13px; padding: 5px 0; }
   #leaderboard-full-list { min-height: 40px; }
+
+  .duel-panel {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--muted-2);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: 420px;
+  }
+  .duel-connect { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .duel-code-input {
+    min-height: auto;
+    width: 80px;
+    padding: 6px 10px;
+    margin: 0;
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .duel-progress-wrap { display: flex; flex-direction: column; gap: 4px; }
+  .duel-progress-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+  }
+  .duel-progress-track {
+    height: 8px;
+    border-radius: 4px;
+    background: var(--surface-2);
+    overflow: hidden;
+  }
+  .duel-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    transition: width 0.25s ease-out;
+  }
+  .duel-room-code {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+  }
   .lb-row-tagged { flex-wrap: wrap; align-items: baseline; }
   .lb-tag {
     display: block; font-size: 10px; color: var(--muted); font-weight: normal;
@@ -902,6 +949,7 @@
       <div class="durations" role="group" aria-label="Game type">
         <button class="key active" data-game="ghost" data-i18n="gameGhost">ghost race</button>
         <button class="key" data-game="daily" data-i18n="gameDaily">daily challenge</button>
+        <button class="key" data-game="duel" data-i18n="gameDuel">duel</button>
       </div>
       <div class="durations" role="group" aria-label="Game language">
         <button class="key active" data-gamescript="en" data-i18n="scriptEnglish">English</button>
@@ -918,6 +966,20 @@
       <div class="drill-target" id="game-info"></div>
       <div id="daily-leaderboard" class="hidden"></div>
       <div id="ghost-leaderboard" class="mini-leaderboard hidden" style="flex-basis:100%;"></div>
+      <div class="duel-panel hidden" id="duel-panel">
+        <div class="duel-connect" id="duel-connect-row">
+          <button class="key" id="duel-create-btn" data-i18n="duelCreate">create room</button>
+          <span class="drill-target">or</span>
+          <input type="text" id="duel-join-input" class="custom-textarea duel-code-input" maxlength="4" data-i18n-placeholder="duelCodePlaceholder" placeholder="CODE" autocomplete="off">
+          <button class="key" id="duel-join-btn" data-i18n="duelJoin">join</button>
+        </div>
+        <div class="drill-target" id="duel-status"></div>
+        <div class="duel-progress-wrap hidden" id="duel-progress-wrap">
+          <div class="duel-progress-label" id="duel-opponent-label"></div>
+          <div class="duel-progress-track"><div class="duel-progress-fill" id="duel-opponent-fill"></div></div>
+        </div>
+        <button class="key hidden" id="duel-leave-btn" data-i18n="duelLeave">leave room</button>
+      </div>
     </div>
     <div class="settings-row hidden" id="leaderboard-panel">
       <div class="durations" role="group" aria-label="Leaderboard game">
@@ -1360,6 +1422,19 @@
   // Games
   var gameMode = "ghost";
   var gameScript = "en";
+
+  // Duel mode (live 1-v-1 races over a WebSocket)
+  var duelSocket = null;
+  var duelRoomCode = '';
+  var duelOpponentName = '';
+  var duelText = '';
+  var duelStartAt = 0;
+  var duelStartTimer = null;
+  var duelCountdownInterval = null;
+  var duelLocalFinished = false;
+  var duelOpponentFinished = false;
+  var duelOpponentFinalWpm = 0;
+  var duelOpponentFinalAcc = 0;
   var ghostTrackLive = [];
 
   // Alt-code quiz (Free Type > Nepali)
@@ -1453,6 +1528,11 @@
     tabInsights: { en: "insights", ne: "अन्तर्दृष्टि" },
     gameGhost: { en: "ghost race", ne: "घोस्ट रेस" },
     gameDaily: { en: "daily challenge", ne: "दैनिक चुनौती" },
+    gameDuel: { en: "duel", ne: "द्वन्द्व" },
+    duelCreate: { en: "create room", ne: "कोठा बनाउनुहोस्" },
+    duelJoin: { en: "join", ne: "जोडिनुहोस्" },
+    duelLeave: { en: "leave room", ne: "कोठा छोड्नुहोस्" },
+    duelCodePlaceholder: { en: "CODE", ne: "कोड" },
     dailyModeWords: { en: "words", ne: "शब्दहरू" },
     dailyModeSentences: { en: "sentences", ne: "वाक्यहरू" },
     dailyModeParagraph: { en: "paragraph", ne: "अनुच्छेद" },
@@ -1699,7 +1779,7 @@
   // Which tabs/sub-modes finish on completing the text rather than on a countdown timer.
   function isUntimedMode() {
     if (currentTab === 'weak' || currentTab === 'lessons') return true;
-    if (currentTab === 'games' && gameMode === 'daily') return true;
+    if (currentTab === 'games' && (gameMode === 'daily' || gameMode === 'duel')) return true;
     return false;
   }
 
@@ -2490,17 +2570,34 @@
     var nameRow = document.getElementById('player-name-row');
     var lbEl = document.getElementById('daily-leaderboard');
     var lengthRow = document.getElementById('daily-length-row');
+    var duelPanel = document.getElementById('duel-panel');
+    var ghostLbEl = document.getElementById('ghost-leaderboard');
     if (!el) return;
+
+    if (gameMode !== 'duel' && duelSocket) duelLeaveRoom();
+    if (duelPanel) duelPanel.classList.toggle('hidden', gameMode !== 'duel');
+
     if (gameMode === 'ghost') {
       var ghost = loadGhost();
       el.textContent = ghost ? ('Racing your best run: ' + ghost.wpm + ' wpm. Type to begin.') : 'No ghost yet — this run sets the target for next time.';
+      el.classList.remove('hidden');
       if (nameRow) nameRow.classList.toggle('hidden', !API_BASE);
       if (lbEl) lbEl.classList.add('hidden');
       if (lengthRow) lengthRow.classList.add('hidden');
       if (API_BASE) refreshGhostLeaderboard();
+    } else if (gameMode === 'duel') {
+      el.classList.add('hidden');
+      if (lengthRow) lengthRow.classList.add('hidden');
+      if (lbEl) lbEl.classList.add('hidden');
+      if (ghostLbEl) { ghostLbEl.classList.add('hidden'); ghostLbEl.innerHTML = ''; }
+      if (nameRow) nameRow.classList.toggle('hidden', !API_BASE);
+      // Only reset the connect UI if we're not already mid-connection/race —
+      // renderGameInfo() can get called again just from re-clicking the
+      // Games tab, and that shouldn't cancel an active duel.
+      if (!duelSocket && !duelRoomCode) resetDuelPanel();
     } else {
+      el.classList.remove('hidden');
       if (lengthRow) lengthRow.classList.remove('hidden');
-      var ghostLbEl = document.getElementById('ghost-leaderboard');
       if (ghostLbEl) { ghostLbEl.classList.add('hidden'); ghostLbEl.innerHTML = ''; }
       var existing = null;
       try { existing = JSON.parse(localStorage.getItem(dailyChallengeKey()) || 'null'); } catch (e) {}
@@ -2513,6 +2610,20 @@
   }
 
   function startGame() {
+    if (gameMode === 'duel') {
+      // Duels don't start typing until a room fills and both clients get
+      // the synchronized go-ahead — see beginDuelCountdown(). If a room is
+      // already connected/racing, leave it alone (this can get called
+      // again just from re-clicking the Games tab); only reset to the
+      // fresh "not connected" state otherwise.
+      if (duelSocket || duelRoomCode) return;
+      clearInterval(timerId);
+      started = false; finished = false;
+      stageEl.classList.remove('blurred');
+      resultsEl.classList.remove('show');
+      renderGameInfo();
+      return;
+    }
     clearInterval(timerId);
     started = false; finished = false; startTime = null; typedIndex = 0; groupStack = [];
     correctCount = 0; incorrectCount = 0; totalKeystrokes = 0; history = []; ghostTrackLive = [];
@@ -2536,6 +2647,193 @@
     promptEl.style.display = 'flex';
     renderGameInfo();
     inputEl.focus();
+  }
+
+  // ---- Duel mode: live 1-v-1 races ----------------------------------------
+  // Two players connect to the same WebSocket room (see backend/main.py);
+  // once both are in, the server sends a shared paragraph plus a
+  // synchronized start time a few seconds out, so both clients count down
+  // to the same instant. From there each side just streams progress to the
+  // other over the open socket.
+
+  function duelWsUrl(roomCode) {
+    if (!API_BASE) return '';
+    var wsBase = API_BASE.replace(/^http/i, 'ws');
+    return wsBase + '/ws/duel/' + encodeURIComponent(roomCode);
+  }
+
+  function duelElements() {
+    return {
+      connectRow: document.getElementById('duel-connect-row'),
+      status: document.getElementById('duel-status'),
+      progressWrap: document.getElementById('duel-progress-wrap'),
+      opponentLabel: document.getElementById('duel-opponent-label'),
+      opponentFill: document.getElementById('duel-opponent-fill'),
+      leaveBtn: document.getElementById('duel-leave-btn'),
+      joinInput: document.getElementById('duel-join-input')
+    };
+  }
+
+  function setDuelStatus(text) {
+    var els = duelElements();
+    if (els.status) els.status.textContent = text;
+  }
+
+  function resetDuelPanel() {
+    if (duelCountdownInterval) { clearInterval(duelCountdownInterval); duelCountdownInterval = null; }
+    if (duelStartTimer) { clearTimeout(duelStartTimer); duelStartTimer = null; }
+    var els = duelElements();
+    if (els.connectRow) els.connectRow.classList.remove('hidden');
+    if (els.progressWrap) els.progressWrap.classList.add('hidden');
+    if (els.leaveBtn) els.leaveBtn.classList.add('hidden');
+    setDuelStatus(API_BASE ? 'Create a room and share the code, or join one.' : 'Duel mode needs the online leaderboard connection to be configured.');
+  }
+
+  function duelLeaveRoom() {
+    if (duelSocket) {
+      try { duelSocket.onclose = null; duelSocket.close(); } catch (e) {}
+      duelSocket = null;
+    }
+    duelRoomCode = '';
+    duelOpponentName = '';
+    duelText = '';
+    duelStartAt = 0;
+    duelLocalFinished = false;
+    duelOpponentFinished = false;
+    if (currentTab === 'games' && gameMode === 'duel') resetDuelPanel();
+  }
+
+  function duelSend(obj) {
+    if (duelSocket && duelSocket.readyState === 1) {
+      try { duelSocket.send(JSON.stringify(obj)); } catch (e) {}
+    }
+  }
+
+  function connectDuelRoom(code) {
+    if (!API_BASE) { setDuelStatus('Duel mode needs the online leaderboard connection to be configured.'); return; }
+    var url = duelWsUrl(code);
+    if (!url) return;
+    duelRoomCode = code;
+    duelLocalFinished = false;
+    duelOpponentFinished = false;
+
+    var socket;
+    try { socket = new WebSocket(url); } catch (e) { setDuelStatus('Could not open a connection — check your network.'); return; }
+    duelSocket = socket;
+
+    var els = duelElements();
+    if (els.connectRow) els.connectRow.classList.add('hidden');
+    if (els.leaveBtn) els.leaveBtn.classList.remove('hidden');
+    setDuelStatus('Connecting\u2026');
+
+    socket.onopen = function () {
+      duelSend({ type: 'join', name: getPlayerName() || 'player' });
+      setDuelStatus('Room ' + code + ' \u2014 waiting for an opponent to join\u2026');
+    };
+    socket.onmessage = function (evt) {
+      var msg;
+      try { msg = JSON.parse(evt.data); } catch (e) { return; }
+      handleDuelMessage(msg);
+    };
+    socket.onclose = function () {
+      if (duelSocket === socket) {
+        duelSocket = null;
+        if (!duelLocalFinished || !duelOpponentFinished) setDuelStatus('Disconnected from the duel server.');
+      }
+    };
+    socket.onerror = function () {
+      setDuelStatus('Connection error \u2014 the server may be waking up, try again in a few seconds.');
+    };
+  }
+
+  function createDuelRoom() {
+    if (!API_BASE) { setDuelStatus('Duel mode needs the online leaderboard connection to be configured.'); return; }
+    setDuelStatus('Creating room\u2026');
+    fetch(API_BASE + '/api/duel/create?script=' + encodeURIComponent(gameScript), { method: 'POST' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data && data.room) connectDuelRoom(data.room);
+        else setDuelStatus('Could not create a room \u2014 try again.');
+      })
+      .catch(function () { setDuelStatus('Could not reach the duel server \u2014 it may be waking up, try again shortly.'); });
+  }
+
+  function handleDuelMessage(msg) {
+    var els = duelElements();
+    if (msg.type === 'waiting') {
+      setDuelStatus('Room ' + duelRoomCode + ' \u2014 share this code. Waiting for an opponent\u2026');
+    } else if (msg.type === 'start') {
+      duelOpponentName = msg.opponentName || 'opponent';
+      duelText = msg.text;
+      duelStartAt = msg.startAt;
+      if (els.progressWrap) els.progressWrap.classList.remove('hidden');
+      if (els.opponentLabel) els.opponentLabel.textContent = duelOpponentName + ' \u2014 0%';
+      if (els.opponentFill) els.opponentFill.style.width = '0%';
+      beginDuelCountdown();
+    } else if (msg.type === 'opponent_progress') {
+      if (els.opponentFill) els.opponentFill.style.width = Math.max(0, Math.min(100, msg.percent || 0)) + '%';
+      if (els.opponentLabel) els.opponentLabel.textContent = duelOpponentName + ' \u2014 ' + (msg.percent || 0) + '% (' + (msg.wpm || 0) + ' wpm)';
+    } else if (msg.type === 'opponent_finished') {
+      duelOpponentFinished = true;
+      duelOpponentFinalWpm = msg.wpm || 0;
+      duelOpponentFinalAcc = msg.acc || 0;
+      if (els.opponentFill) els.opponentFill.style.width = '100%';
+      if (els.opponentLabel) els.opponentLabel.textContent = duelOpponentName + ' finished \u2014 ' + duelOpponentFinalWpm + ' wpm, ' + duelOpponentFinalAcc + '% acc';
+      maybeShowDuelResult();
+    } else if (msg.type === 'opponent_left') {
+      setDuelStatus(duelOpponentName + ' disconnected.');
+      duelOpponentName = '';
+    } else if (msg.type === 'error') {
+      setDuelStatus(msg.message || 'Something went wrong.');
+      if (duelSocket) { try { duelSocket.close(); } catch (e) {} duelSocket = null; }
+      resetDuelPanel();
+    }
+  }
+
+  function beginDuelCountdown() {
+    if (duelCountdownInterval) clearInterval(duelCountdownInterval);
+    function tickCountdown() {
+      var remaining = Math.ceil((duelStartAt - Date.now()) / 1000);
+      if (remaining > 0) {
+        setDuelStatus('Racing ' + duelOpponentName + ' \u2014 starting in ' + remaining + '\u2026');
+      } else {
+        clearInterval(duelCountdownInterval);
+        duelCountdownInterval = null;
+        startDuelTyping();
+      }
+    }
+    tickCountdown();
+    duelCountdownInterval = setInterval(tickCountdown, 250);
+  }
+
+  function startDuelTyping() {
+    clearInterval(timerId);
+    started = false; finished = false; startTime = null; typedIndex = 0; groupStack = [];
+    correctCount = 0; incorrectCount = 0; totalKeystrokes = 0; history = [];
+    lastSecondMark = 0; charsAtMark = 0; errorsAtMark = 0; totalAtMark = 0;
+    resultsEl.classList.remove('show');
+    stageEl.classList.remove('blurred');
+    statTime.textContent = '0';
+    statWpm.textContent = '0';
+    statAcc.textContent = '100%';
+    document.getElementById('stat-best').textContent = '\u2014';
+    renderText(duelText);
+    updateKeyboardTargets([]);
+    promptState = 'default';
+    refreshPromptText();
+    promptEl.style.display = 'flex';
+    setDuelStatus('Go! Racing ' + duelOpponentName + '.');
+    inputEl.focus();
+  }
+
+  function maybeShowDuelResult() {
+    if (!duelLocalFinished || !duelOpponentFinished) return;
+    var localWpm = parseInt(document.getElementById('res-wpm').textContent, 10) || 0;
+    var youWon = localWpm > duelOpponentFinalWpm;
+    var tied = localWpm === duelOpponentFinalWpm;
+    setDuelStatus((tied ? 'Tied with ' : (youWon ? 'You beat ' : duelOpponentName + ' beat you \u2014 ')) +
+      (tied ? duelOpponentName : (youWon ? duelOpponentName : '')) +
+      '! You: ' + localWpm + ' wpm \u00b7 ' + duelOpponentName + ': ' + duelOpponentFinalWpm + ' wpm');
   }
 
   // ---- Insights ------------------------------------------------------------
@@ -3093,6 +3391,11 @@
           }
         }
       }
+
+      if (currentTab === 'games' && gameMode === 'duel' && duelSocket) {
+        var duelPercent = chars.length ? Math.round((typedIndex / chars.length) * 100) : 0;
+        duelSend({ type: 'progress', percent: duelPercent, wpm: wpm });
+      }
     }
 
     if (!isUntimedMode() && elapsed >= duration) endTest();
@@ -3166,6 +3469,14 @@
           submitDailyScore(wpm, acc);
         } else {
           document.getElementById('game-info').textContent = "Practice run — today's official result stays " + already.wpm + ' wpm.';
+        }
+      } else if (gameMode === 'duel') {
+        duelLocalFinished = true;
+        duelSend({ type: 'finished', wpm: wpm, acc: acc });
+        if (duelOpponentFinished) {
+          maybeShowDuelResult();
+        } else {
+          setDuelStatus('Finished! You: ' + wpm + ' wpm, ' + acc + '% acc \u2014 waiting for ' + (duelOpponentName || 'your opponent') + ' to finish\u2026');
         }
       }
       logSession(wpm, acc, 'games-' + gameMode, correctCount, consistency);
@@ -3621,7 +3932,9 @@
       btn.classList.add('active');
       clearInterval(timerId);
       started = false;
-      currentTab = btn.getAttribute('data-tab');
+      var newTab = btn.getAttribute('data-tab');
+      if (newTab !== 'games' && currentTab === 'games' && (duelSocket || duelRoomCode)) duelLeaveRoom();
+      currentTab = newTab;
       applyTabVisibility();
       if (currentTab === 'weak') {
         renderLetterGrid();
@@ -3766,7 +4079,9 @@
     btn.addEventListener('click', function () {
       gameTypeButtons.forEach(function (b) { b.classList.remove('active'); });
       btn.classList.add('active');
-      gameMode = btn.getAttribute('data-game');
+      var newMode = btn.getAttribute('data-game');
+      if (newMode !== gameMode) duelLeaveRoom();
+      gameMode = newMode;
       startGame();
     });
   });
@@ -3776,11 +4091,36 @@
     btn.addEventListener('click', function () {
       gameScriptButtons.forEach(function (b) { b.classList.remove('active'); });
       btn.classList.add('active');
+      duelLeaveRoom();
       gameScript = btn.getAttribute('data-gamescript');
       setKeyboardLabels(gameScript === 'ne' ? 'ne' : 'en');
       startGame();
     });
   });
+
+  var duelCreateBtn = document.getElementById('duel-create-btn');
+  var duelJoinBtn = document.getElementById('duel-join-btn');
+  var duelJoinInput = document.getElementById('duel-join-input');
+  var duelLeaveBtn = document.getElementById('duel-leave-btn');
+  if (duelCreateBtn) duelCreateBtn.addEventListener('click', function () { createDuelRoom(); });
+  if (duelJoinBtn) {
+    duelJoinBtn.addEventListener('click', function () {
+      var code = (duelJoinInput.value || '').trim().toUpperCase();
+      if (code.length !== 4) { setDuelStatus('Enter the 4-character room code your opponent shared.'); return; }
+      connectDuelRoom(code);
+    });
+  }
+  if (duelJoinInput) {
+    duelJoinInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); duelJoinBtn.click(); }
+    });
+  }
+  if (duelLeaveBtn) {
+    duelLeaveBtn.addEventListener('click', function () {
+      duelLeaveRoom();
+      startGame();
+    });
+  }
 
   var dailyModeButtons = document.querySelectorAll('#games-panel .key[data-dailymode]');
   dailyMode = getDailyMode();
