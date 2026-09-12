@@ -185,25 +185,27 @@
 
   .kb-key.devanagari { font-size: 22px; position: relative; }
   .kb-key { position: relative; }
+  /* English letter: centered and prominent */
   .kb-sub {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 18px;
-  line-height: 1;
-  color: var(--text);
-  opacity: 0.8;
-  text-transform: uppercase;
-  font-family: 'IBM Plex Mono', monospace;
-}
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 18px;
+    line-height: 1;
+    color: var(--text);
+    opacity: 0.8;
+    text-transform: uppercase;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  /* Devanagari character: small corner label, top-left */
   .kb-main {
-  position: absolute;
-  top: 2px;
-  left: 4px;
-  font-size: 12px;
-  color: var(--muted);
-}
+    position: absolute;
+    top: 2px;
+    left: 4px;
+    font-size: 12px;
+    color: var(--muted);
+  }
 
   .weak-actions {
     display: flex;
@@ -256,6 +258,18 @@
     width: 130px;
   }
   .global-name-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .global-name-reset {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    background: none;
+    border: none;
+    padding: 2px 4px;
+    cursor: pointer;
+    text-decoration: underline;
+    white-space: nowrap;
+  }
+  .global-name-reset:hover { opacity: 0.8; }
 
   .lesson-list {
     display: flex;
@@ -701,7 +715,8 @@
     .kb-key { width: 28px; height: 32px; font-size: 10px; flex: 0 0 auto; }
     .kb-key.devanagari { font-size: 15px; }
     .kb-key.kb-space { width: 160px; }
-    .kb-sub { font-size: 7px; top: 1px; right: 2px; }
+    .kb-sub { font-size: 11px; }
+    .kb-main { font-size: 8px; top: 1px; left: 2px; }
     .ac-grid { grid-template-columns: repeat(5, 30px); }
     .ac-item { width: 30px; min-height: 30px; padding: 2px 0; }
     .ac-ch { font-size: 13px; }
@@ -947,6 +962,7 @@
       <div class="global-name-row hidden" id="global-name-row" title="Used on the shared leaderboards and shown to duel opponents">
         <span class="global-name-label" data-i18n="globalNameLabel">playing as</span>
         <input type="text" id="global-name-input" class="global-name-input" maxlength="20" autocomplete="off" data-i18n-placeholder="playerNamePlaceholder" placeholder="your name" />
+        <button type="button" class="global-name-reset hidden" id="global-name-reset" data-i18n="globalNameReset" title="Clear the saved name on this device">change</button>
       </div>
       <div class="durations" role="group" aria-label="Interface language">
         <button class="key active" data-uilang="en">EN</button>
@@ -1686,6 +1702,7 @@
     insightsBadgesLabel: { en: "Badges", ne: "ब्याजहरू" },
     playerNamePlaceholder: { en: "your name", ne: "तपाईंको नाम" },
     globalNameLabel: { en: "playing as", ne: "यस नामले खेल्दै" },
+    globalNameReset: { en: "change", ne: "परिवर्तन" },
     exportReportBtn: { en: "download progress report", ne: "प्रगति रिपोर्ट डाउनलोड गर्नुहोस्" },
     freeCode: { en: "Code", ne: "कोड" },
     footerHtml: {
@@ -2133,7 +2150,7 @@
     'i': { normal: '\u0937', shift: '\u0915\u094D\u0937\u094D' },
     'o': { normal: '\u092F', shift: '\u0907' },
     'p': { normal: '\u0909', shift: '\u090F' },
-    '[': { normal: '\u0943', shift: '\u0943' },
+    '[': { normal: '\u0930\u094D', shift: '\u0943' },
     ']': { normal: '\u0947', shift: '\u0948' },
     '\\': { normal: '\u094D', shift: '\u094D' },
     'a': { normal: '\u092C', shift: '\u092C\u094D' },
@@ -2415,23 +2432,28 @@
     fetch(API_BASE + '/api/health').catch(function () {});
   }
 
-  // Deliberately NOT persisted in localStorage: the name field should start
-  // blank on every fresh page load (each visit to the link), not carry over
-  // a name from a previous session. It's kept as a plain in-memory variable
-  // so it still works for the rest of *this* page load (e.g. typing a name
-  // after finishing today's run still gets it submitted).
+  // Persisted in localStorage: with a small, fixed group of people sharing
+  // a handful of devices, remembering "this browser is Alice" across visits
+  // is more useful than making everyone retype their name every time they
+  // open the app. The little "change" link next to the field (wired up
+  // near the bottom of this script) clears it when someone needs to swap
+  // names on a shared device.
   var sessionPlayerName = '';
-  try { localStorage.removeItem('clackpad_player_name'); } catch (e) {} // clean up old persisted values
+  try { sessionPlayerName = localStorage.getItem('clackpad_player_name') || ''; } catch (e) {}
 
   function getPlayerName() {
     return sessionPlayerName;
   }
 
-  // Sets the shared player name and keeps the (single, always-visible)
-  // name field in sync with it — mostly relevant right after page load or
-  // if something else ever sets it programmatically.
+  // Sets the shared player name, persists it, and keeps the (single,
+  // always-visible) name field in sync with it — mostly relevant right
+  // after page load or if something else ever sets it programmatically.
   function setPlayerName(name) {
     sessionPlayerName = name;
+    try {
+      if (name) localStorage.setItem('clackpad_player_name', name);
+      else localStorage.removeItem('clackpad_player_name');
+    } catch (e) {}
     var el = document.getElementById('global-name-input');
     if (el && el.value !== name) el.value = name;
   }
@@ -4527,11 +4549,26 @@
   // opponents), so it shouldn't be buried inside just one or two tabs.
   var globalNameRow = document.getElementById('global-name-row');
   var globalNameInput = document.getElementById('global-name-input');
+  var globalNameResetBtn = document.getElementById('global-name-reset');
   if (globalNameRow) globalNameRow.classList.toggle('hidden', !API_BASE);
+
+  function updateNameResetVisibility() {
+    if (globalNameResetBtn) globalNameResetBtn.classList.toggle('hidden', !getPlayerName());
+  }
+
   if (globalNameInput) {
     globalNameInput.value = getPlayerName();
+    updateNameResetVisibility();
     globalNameInput.addEventListener('change', function () {
       onNameFieldChanged(globalNameInput.value);
+      updateNameResetVisibility();
+    });
+  }
+  if (globalNameResetBtn) {
+    globalNameResetBtn.addEventListener('click', function () {
+      onNameFieldChanged('');
+      updateNameResetVisibility();
+      if (globalNameInput) globalNameInput.focus();
     });
   }
 
