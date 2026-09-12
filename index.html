@@ -389,7 +389,6 @@
   }
   .duel-progress-fill.duel-progress-you { background: var(--correct); }
 
-  .duel-lobby { display: flex; flex-direction: column; gap: 6px; }
   .duel-lobby-list { display: flex; flex-direction: column; gap: 4px; }
   .duel-lobby-row {
     display: flex;
@@ -403,6 +402,85 @@
     font-size: 13px;
   }
   .duel-lobby-row .key { padding: 3px 10px; font-size: 12px; background: #e8c34a; color: #1b1d22; }
+
+  /* Old-Facebook-style "who's online" sidebar: a small tab docked to the
+     bottom-right of the viewport, with a colored header you can click to
+     collapse it down to just the title bar. */
+  .online-sidebar {
+    position: fixed;
+    right: 20px;
+    bottom: 0;
+    width: 230px;
+    max-width: calc(100vw - 40px);
+    background: var(--surface);
+    border: 1px solid var(--muted-2);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.25);
+    z-index: 40;
+    font-family: 'IBM Plex Mono', monospace;
+    overflow: hidden;
+  }
+  .online-sidebar.hidden { display: none; }
+
+  .online-sidebar-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 12px;
+    background: var(--accent);
+    color: var(--accent-text, #1b1d22);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+  }
+  .online-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #3fce5e;
+    box-shadow: 0 0 0 2px rgba(63, 206, 94, 0.35);
+    flex-shrink: 0;
+  }
+  .online-sidebar-title { flex: 1; }
+  .online-sidebar-count {
+    background: rgba(0, 0, 0, 0.18);
+    border-radius: 10px;
+    padding: 1px 7px;
+    font-size: 11px;
+  }
+  .online-sidebar-toggle {
+    font-size: 12px;
+    transition: transform 0.15s ease;
+  }
+  .online-sidebar.collapsed .online-sidebar-toggle { transform: rotate(-90deg); }
+
+  .online-sidebar-body {
+    max-height: 280px;
+    overflow-y: auto;
+    padding: 10px 12px 12px;
+  }
+  .online-sidebar.collapsed .online-sidebar-body { display: none; }
+  .online-sidebar-body .duel-lobby-row { background: var(--surface-2); }
+  .online-sidebar-body .duel-lobby-row span:first-child {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .online-sidebar-body .duel-lobby-row span:first-child::before {
+    content: '';
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #3fce5e;
+    flex-shrink: 0;
+  }
+  .online-sidebar-body #duel-lobby-empty { font-size: 12px; }
+
+  @media (max-width: 560px) {
+    .online-sidebar { right: 10px; width: 200px; }
+  }
   .duel-invite-banner {
     display: flex;
     align-items: center;
@@ -1084,11 +1162,6 @@
             <button class="key" id="duel-invite-decline-btn" data-i18n="duelInviteDecline">decline</button>
           </span>
         </div>
-        <div class="duel-lobby" id="duel-lobby">
-          <div class="free-reference-label" data-i18n="duelLobbyTitle">Online now</div>
-          <div class="duel-lobby-list" id="duel-lobby-list"></div>
-          <div class="drill-target hidden" id="duel-lobby-empty" data-i18n="duelLobbyEmpty">Nobody else is online right now — share a room code below, or wait for a friend to open the app.</div>
-        </div>
         <div class="duel-lobby-divider" data-i18n="duelLobbyOr">or use a room code</div>
         <div class="duel-connect" id="duel-connect-row">
           <button class="key" id="duel-create-btn" data-i18n="duelCreate">create room</button>
@@ -1259,6 +1332,19 @@
   </div>
   <div class="alt-code-panel alt-code-panel-right" id="alt-code-panel-right">
     <div id="alt-code-groups-right"></div>
+  </div>
+</div>
+
+<div class="online-sidebar hidden" id="online-sidebar">
+  <div class="online-sidebar-header" id="online-sidebar-header">
+    <span class="online-dot"></span>
+    <span class="online-sidebar-title" data-i18n="duelLobbyTitle">Online now</span>
+    <span class="online-sidebar-count" id="online-sidebar-count">0</span>
+    <span class="online-sidebar-toggle" id="online-sidebar-toggle">&#9662;</span>
+  </div>
+  <div class="online-sidebar-body" id="online-sidebar-body">
+    <div class="duel-lobby-list" id="duel-lobby-list"></div>
+    <div class="drill-target hidden" id="duel-lobby-empty" data-i18n="duelLobbyEmpty">Nobody else is online right now — share a room code below, or wait for a friend to open the app.</div>
   </div>
 </div>
 
@@ -2150,7 +2236,7 @@
     'i': { normal: '\u0937', shift: '\u0915\u094D\u0937\u094D' },
     'o': { normal: '\u092F', shift: '\u0907' },
     'p': { normal: '\u0909', shift: '\u090F' },
-    '[': { normal: '\u0930\u094D', shift: '\u0943' },
+    '[': { normal: '\u0943', shift: '\u0943' },
     ']': { normal: '\u0947', shift: '\u0948' },
     '\\': { normal: '\u094D', shift: '\u094D' },
     'a': { normal: '\u092C', shift: '\u092C\u094D' },
@@ -3102,13 +3188,15 @@
   }
 
   function connectLobby() {
-    if (lobbySocket) return; // already connected/connecting
+    var sidebar = document.getElementById('online-sidebar');
+    if (lobbySocket) { if (sidebar) sidebar.classList.remove('hidden'); return; } // already connected/connecting
     var url = lobbyWsUrl();
     if (!url) return;
 
     var socket;
     try { socket = new WebSocket(url); } catch (e) { return; }
     lobbySocket = socket;
+    if (sidebar) sidebar.classList.remove('hidden');
 
     socket.onopen = function () {
       lobbySend({ name: getPlayerName() || 'player', script: gameScript });
@@ -3136,6 +3224,8 @@
     outgoingInviteToId = null;
     hideInviteBanner();
     renderLobbyList();
+    var sidebar = document.getElementById('online-sidebar');
+    if (sidebar) sidebar.classList.add('hidden');
   }
 
   function hideInviteBanner() {
@@ -3153,6 +3243,8 @@
   function renderLobbyList() {
     var listEl = document.getElementById('duel-lobby-list');
     var emptyEl = document.getElementById('duel-lobby-empty');
+    var countEl = document.getElementById('online-sidebar-count');
+    if (countEl) countEl.textContent = lobbyPlayers.length;
     if (!listEl) return;
     if (!lobbyPlayers.length) {
       listEl.innerHTML = '';
@@ -4496,6 +4588,14 @@
       outgoingInviteToId = toId;
       renderLobbyList();
       lobbySend({ type: 'invite', toId: toId });
+    });
+  }
+
+  var onlineSidebarHeader = document.getElementById('online-sidebar-header');
+  if (onlineSidebarHeader) {
+    onlineSidebarHeader.addEventListener('click', function () {
+      var sidebar = document.getElementById('online-sidebar');
+      if (sidebar) sidebar.classList.toggle('collapsed');
     });
   }
 
