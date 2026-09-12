@@ -340,6 +340,47 @@
   }
   .duel-progress-fill.duel-progress-you { background: var(--correct); }
 
+  .duel-lobby { display: flex; flex-direction: column; gap: 6px; }
+  .duel-lobby-list { display: flex; flex-direction: column; gap: 4px; }
+  .duel-lobby-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: var(--surface-2);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+  }
+  .duel-lobby-row .key { padding: 3px 10px; font-size: 12px; }
+  .duel-invite-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--surface-2);
+    border: 1px solid var(--accent);
+  }
+  .duel-invite-banner .key { padding: 4px 12px; }
+  .duel-lobby-divider {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+  }
+  .duel-lobby-divider::before, .duel-lobby-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--muted-2);
+  }
+
   .opponent-marker {
     position: absolute;
     width: 3px;
@@ -984,6 +1025,19 @@
       <div id="daily-leaderboard" class="hidden"></div>
       <div id="ghost-leaderboard" class="mini-leaderboard hidden" style="flex-basis:100%;"></div>
       <div class="duel-panel hidden" id="duel-panel">
+        <div class="duel-invite-banner hidden" id="duel-invite-banner">
+          <span id="duel-invite-text"></span>
+          <span>
+            <button class="key" id="duel-invite-accept-btn" data-i18n="duelInviteAccept">accept</button>
+            <button class="key" id="duel-invite-decline-btn" data-i18n="duelInviteDecline">decline</button>
+          </span>
+        </div>
+        <div class="duel-lobby" id="duel-lobby">
+          <div class="free-reference-label" data-i18n="duelLobbyTitle">Online now</div>
+          <div class="duel-lobby-list" id="duel-lobby-list"></div>
+          <div class="drill-target hidden" id="duel-lobby-empty" data-i18n="duelLobbyEmpty">Nobody else is online right now — share a room code below, or wait for a friend to open the app.</div>
+        </div>
+        <div class="duel-lobby-divider" data-i18n="duelLobbyOr">or use a room code</div>
         <div class="duel-connect" id="duel-connect-row">
           <button class="key" id="duel-create-btn" data-i18n="duelCreate">create room</button>
           <span class="drill-target">or</span>
@@ -1454,6 +1508,15 @@
   var duelOpponentFinished = false;
   var duelOpponentFinalWpm = 0;
   var duelOpponentFinalAcc = 0;
+
+  // Lobby (who's online right now, invite-to-duel) — a separate WebSocket
+  // from the duel room itself. See connectLobby()/handleLobbyMessage().
+  var lobbySocket = null;
+  var lobbyId = null;
+  var lobbyPlayers = [];
+  var pendingInviteFromId = null;
+  var pendingInviteFromName = '';
+  var outgoingInviteToId = null;
   var ghostTrackLive = [];
 
   // Alt-code quiz (Free Type > Nepali)
@@ -1552,6 +1615,13 @@
     duelJoin: { en: "join", ne: "जोडिनुहोस्" },
     duelLeave: { en: "leave room", ne: "कोठा छोड्नुहोस्" },
     duelCodePlaceholder: { en: "CODE", ne: "कोड" },
+    duelLobbyTitle: { en: "Online now", ne: "अहिले अनलाइन" },
+    duelLobbyEmpty: { en: "Nobody else is online right now — share a room code below, or wait for a friend to open the app.", ne: "अहिले अरू कोही अनलाइन छैन — तलको कोठा कोड साझा गर्नुहोस्, वा साथी एप खोल्ने पर्खनुहोस्।" },
+    duelLobbyOr: { en: "or use a room code", ne: "वा कोठा कोड प्रयोग गर्नुहोस्" },
+    duelInviteAccept: { en: "accept", ne: "स्वीकार्नुहोस्" },
+    duelInviteDecline: { en: "decline", ne: "अस्वीकार गर्नुहोस्" },
+    duelInvite: { en: "invite", ne: "आमन्त्रण" },
+    duelInvited: { en: "invited\u2026", ne: "आमन्त्रित\u2026" },
     dailyModeWords: { en: "words", ne: "शब्दहरू" },
     dailyModeSentences: { en: "sentences", ne: "वाक्यहरू" },
     dailyModeParagraph: { en: "paragraph", ne: "अनुच्छेद" },
@@ -2594,6 +2664,7 @@
     if (!el) return;
 
     if (gameMode !== 'duel' && duelSocket) duelLeaveRoom();
+    if (gameMode !== 'duel' && lobbySocket) disconnectLobby();
     if (duelPanel) duelPanel.classList.toggle('hidden', gameMode !== 'duel');
 
     if (gameMode === 'ghost') {
@@ -2613,7 +2684,7 @@
       // Only reset the connect UI if we're not already mid-connection/race —
       // renderGameInfo() can get called again just from re-clicking the
       // Games tab, and that shouldn't cancel an active duel.
-      if (!duelSocket && !duelRoomCode) resetDuelPanel();
+      if (!duelSocket && !duelRoomCode) { resetDuelPanel(); connectLobby(); }
     } else {
       el.classList.remove('hidden');
       if (lengthRow) lengthRow.classList.remove('hidden');
@@ -2762,7 +2833,7 @@
     duelLocalFinished = false;
     duelOpponentFinished = false;
     removeOpponentMarker();
-    if (currentTab === 'games' && gameMode === 'duel') resetDuelPanel();
+    if (currentTab === 'games' && gameMode === 'duel') { resetDuelPanel(); connectLobby(); }
   }
 
   function duelSend(obj) {
@@ -2775,6 +2846,9 @@
     if (!API_BASE) { setDuelStatus('Duel mode needs the online leaderboard connection to be configured.'); return; }
     var url = duelWsUrl(code);
     if (!url) return;
+    // You can't be both "browsable in the lobby" and "in a race" — drop the
+    // lobby connection the moment a real duel room connects.
+    disconnectLobby();
     duelRoomCode = code;
     duelLocalFinished = false;
     duelOpponentFinished = false;
@@ -2902,6 +2976,119 @@
     setDuelStatus((tied ? 'Tied with ' : (youWon ? 'You beat ' : duelOpponentName + ' beat you \u2014 ')) +
       (tied ? duelOpponentName : (youWon ? duelOpponentName : '')) +
       '! You: ' + localWpm + ' wpm \u00b7 ' + duelOpponentName + ': ' + duelOpponentFinalWpm + ' wpm');
+  }
+
+  // ---- Lobby: see who's online, invite them to a duel ----------------------
+  // Separate WebSocket from the duel room itself (see backend/main.py's
+  // /ws/lobby). Connected whenever you're sitting on the Duel screen without
+  // an active room; dropped the moment a real duel room connects (you can't
+  // be both "browsable in the lobby" and "mid-race" at once), and
+  // reconnected automatically once you leave that room again.
+
+  function lobbyWsUrl() {
+    if (!API_BASE) return '';
+    var wsBase = API_BASE.replace(/^http/i, 'ws');
+    return wsBase + '/ws/lobby';
+  }
+
+  function lobbySend(obj) {
+    if (lobbySocket && lobbySocket.readyState === 1) {
+      try { lobbySocket.send(JSON.stringify(obj)); } catch (e) {}
+    }
+  }
+
+  function connectLobby() {
+    if (lobbySocket) return; // already connected/connecting
+    var url = lobbyWsUrl();
+    if (!url) return;
+
+    var socket;
+    try { socket = new WebSocket(url); } catch (e) { return; }
+    lobbySocket = socket;
+
+    socket.onopen = function () {
+      lobbySend({ name: getPlayerName() || 'player', script: gameScript });
+    };
+    socket.onmessage = function (evt) {
+      var msg;
+      try { msg = JSON.parse(evt.data); } catch (e) { return; }
+      handleLobbyMessage(msg);
+    };
+    socket.onclose = function () {
+      if (lobbySocket === socket) lobbySocket = null;
+    };
+    socket.onerror = function () {};
+  }
+
+  function disconnectLobby() {
+    if (lobbySocket) {
+      try { lobbySocket.onclose = null; lobbySocket.close(); } catch (e) {}
+      lobbySocket = null;
+    }
+    lobbyId = null;
+    lobbyPlayers = [];
+    pendingInviteFromId = null;
+    pendingInviteFromName = '';
+    outgoingInviteToId = null;
+    hideInviteBanner();
+    renderLobbyList();
+  }
+
+  function hideInviteBanner() {
+    var banner = document.getElementById('duel-invite-banner');
+    if (banner) banner.classList.add('hidden');
+  }
+
+  function showInviteBanner(fromName) {
+    var banner = document.getElementById('duel-invite-banner');
+    var text = document.getElementById('duel-invite-text');
+    if (text) text.textContent = fromName + ' wants to duel!';
+    if (banner) banner.classList.remove('hidden');
+  }
+
+  function renderLobbyList() {
+    var listEl = document.getElementById('duel-lobby-list');
+    var emptyEl = document.getElementById('duel-lobby-empty');
+    if (!listEl) return;
+    if (!lobbyPlayers.length) {
+      listEl.innerHTML = '';
+      if (emptyEl) emptyEl.classList.remove('hidden');
+      return;
+    }
+    if (emptyEl) emptyEl.classList.add('hidden');
+    listEl.innerHTML = lobbyPlayers.map(function (p) {
+      var invited = outgoingInviteToId === p.id;
+      return '<div class="duel-lobby-row">' +
+        '<span>' + p.name + '</span>' +
+        '<button class="key" data-invite-id="' + p.id + '"' + (invited ? ' disabled' : '') + '>' +
+        (invited ? t('duelInvited') : t('duelInvite')) + '</button></div>';
+    }).join('');
+  }
+
+  function handleLobbyMessage(msg) {
+    if (msg.type === 'you') {
+      lobbyId = msg.id;
+    } else if (msg.type === 'players') {
+      lobbyPlayers = msg.players || [];
+      renderLobbyList();
+    } else if (msg.type === 'invite_received') {
+      pendingInviteFromId = msg.fromId;
+      pendingInviteFromName = msg.fromName || 'someone';
+      showInviteBanner(pendingInviteFromName);
+    } else if (msg.type === 'invite_declined') {
+      outgoingInviteToId = null;
+      renderLobbyList();
+      setDuelStatus((msg.byName || 'They') + " declined \u2014 try someone else, or share a room code.");
+    } else if (msg.type === 'invite_failed') {
+      outgoingInviteToId = null;
+      renderLobbyList();
+      setDuelStatus(msg.reason || 'Could not send that invite.');
+    } else if (msg.type === 'invite_accepted') {
+      hideInviteBanner();
+      pendingInviteFromId = null;
+      outgoingInviteToId = null;
+      connectDuelRoom(msg.room);
+    }
   }
 
   // ---- Insights ------------------------------------------------------------
@@ -4002,7 +4189,10 @@
       clearInterval(timerId);
       started = false;
       var newTab = btn.getAttribute('data-tab');
-      if (newTab !== 'games' && currentTab === 'games' && (duelSocket || duelRoomCode)) duelLeaveRoom();
+      if (newTab !== 'games' && currentTab === 'games') {
+        if (duelSocket || duelRoomCode) duelLeaveRoom();
+        if (lobbySocket) disconnectLobby();
+      }
       currentTab = newTab;
       applyTabVisibility();
       if (currentTab === 'weak') {
@@ -4188,6 +4378,36 @@
     duelLeaveBtn.addEventListener('click', function () {
       duelLeaveRoom();
       startGame();
+    });
+  }
+
+  var duelLobbyList = document.getElementById('duel-lobby-list');
+  if (duelLobbyList) {
+    duelLobbyList.addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-invite-id]');
+      if (!btn || btn.disabled) return;
+      var toId = btn.getAttribute('data-invite-id');
+      outgoingInviteToId = toId;
+      renderLobbyList();
+      lobbySend({ type: 'invite', toId: toId });
+    });
+  }
+
+  var duelInviteAcceptBtn = document.getElementById('duel-invite-accept-btn');
+  if (duelInviteAcceptBtn) {
+    duelInviteAcceptBtn.addEventListener('click', function () {
+      if (!pendingInviteFromId) return;
+      lobbySend({ type: 'accept', fromId: pendingInviteFromId });
+      hideInviteBanner();
+    });
+  }
+
+  var duelInviteDeclineBtn = document.getElementById('duel-invite-decline-btn');
+  if (duelInviteDeclineBtn) {
+    duelInviteDeclineBtn.addEventListener('click', function () {
+      if (pendingInviteFromId) lobbySend({ type: 'decline', toId: pendingInviteFromId });
+      pendingInviteFromId = null;
+      hideInviteBanner();
     });
   }
 
