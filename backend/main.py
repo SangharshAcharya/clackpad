@@ -17,9 +17,15 @@ daily challenge and ghost race submissions always send duration=0, since a
 15-second sprint and a 2-minute run aren't a fair comparison, but daily
 challenge/ghost race don't have that axis at all.
 
+It also hosts Duel mode: live 1-v-1 races over a WebSocket
+(/ws/duel/{room_code}), matched via a short room code from
+POST /api/duel/create. Duel rooms are in-memory only, not stored in the
+database — see the "Duel mode" section below for how that works.
+
 Everything else in Clackpad (streaks, lessons, badges, the ghost you race
-against) still lives in each browser's localStorage — this API only ever
-sees a name + wpm + accuracy, submitted once a run finishes.
+against) still lives in each browser's localStorage — the persistent (DB)
+part of this API only ever sees a name + wpm + accuracy, submitted once a
+run finishes.
 
 Run locally:
     pip install -r requirements.txt
@@ -29,11 +35,14 @@ Deploy: see ../DEPLOY.md
 """
 
 import os
+import random
 import sqlite3
+import time
 from contextlib import contextmanager
 from datetime import date
+from typing import Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -302,3 +311,182 @@ def submit_daily_score_legacy(payload: ScoreSubmission):
 @app.get("/api/daily-leaderboard")
 def daily_leaderboard_legacy(date: str, script: str = "en", mode: str = "sentences", limit: int = 10):
     return leaderboard(date=date, script=script, mode=mode, board="daily", limit=limit)
+
+
+# ---- Duel mode: live 1-v-1 races ------------------------------------------
+# Rooms are plain in-memory state, not database rows — a duel only needs to
+# exist for the few minutes two people are actually racing each other, so
+# there's nothing worth persisting past that (and it conveniently clears
+# itself on every redeploy, which is fine for something this short-lived).
+# Two players connect to the same room over a WebSocket; once both are in,
+# the server picks one shared paragraph and a synchronized start time (a few
+# seconds out) so both clients count down to the exact same instant rather
+# than racing on whichever one's network happened to respond first. From
+# there it's just a relay: each player's live progress gets forwarded to
+# the other, and so does their final result.
+
+DUEL_TEXTS = {
+    "en": [
+        "The quick fox jumped over a lazy dog near the old wooden fence.",
+        "A gentle breeze moved through the tall grass as the sun began to set.",
+        "She opened the door slowly, unsure of what she might find inside.",
+        "Practice a little every day and the habit builds itself over time.",
+        "The mountain trail wound upward through pine trees and loose gravel.",
+        "Good coffee and a quiet morning make for a productive start to the day.",
+    ],
+    "ne": [
+        "\u0906\u091c \u092e\u094c\u0938\u092e \u0930\u093e\u092e\u094d\u0930\u094b \u091b\u0964 \u0939\u093e\u092e\u0940 \u092c\u093e\u0939\u093f\u0930 \u0918\u0941\u092e\u094d\u0928 \u091c\u093e\u0928\u0947 \u092f\u094b\u091c\u0928\u093e \u092c\u0928\u093e\u092f\u094c\u0964",
+        "\u0909\u0938\u0932\u0947 \u0916\u0941\u0938\u0940 \u092d\u090f\u0930 \u092a\u0941\u0930\u093e\u0928\u094b \u0915\u093f\u0924\u093e\u092c \u092a\u0922\u094d\u0928 \u0925\u093e\u0932\u094d\u092f\u094b\u0964",
+        "\u092c\u093f\u0939\u093e\u0928 \u092d\u090f\u0915\u094b \u0938\u092e\u092f\u092e\u093e \u092a\u0928\u093f \u0905\u092d\u094d\u092f\u093e\u0938 \u0917\u0930\u094d\u0928\u0941 \u091c\u0930\u0941\u0930\u0940 \u091b\u0964",
+        "\u092e\u0932\u093e\u0908 \u0906\u092b\u094d\u0928\u094b \u0918\u0930\u092e\u093e \u092c\u0938\u094d\u0928 \u092e\u0928 \u092a\u0930\u094d\u091b\u0964",
+    ],
+}
+
+
+def _gen_room_code() -> str:
+    # Skip visually-ambiguous characters (0/O, 1/I/L) since this gets read
+    # off one screen and typed into another.
+    alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+    return "".join(random.choice(alphabet) for _ in range(4))
+
+
+class DuelPlayer:
+    def __init__(self, ws: WebSocket, name: str):
+        self.ws = ws
+        self.name = name
+        self.connected = True
+        self.finished = False
+        self.final_wpm = 0
+        self.final_acc = 0
+
+
+class DuelRoom:
+    def __init__(self, code: str, script: str):
+        self.code = code
+        self.script = script
+        self.players: List[DuelPlayer] = []
+        self.text: Optional[str] = None
+        self.start_at: Optional[float] = None
+        self.created_at = time.time()
+
+    def other(self, player: DuelPlayer) -> Optional[DuelPlayer]:
+        for p in self.players:
+            if p is not player:
+                return p
+        return None
+
+    def is_stale(self) -> bool:
+        nobody_connected = not any(p.connected for p in self.players)
+        return nobody_connected and (time.time() - self.created_at > 3600)
+
+
+duel_rooms: Dict[str, DuelRoom] = {}
+
+
+def _cleanup_stale_duel_rooms() -> None:
+    stale = [code for code, room in duel_rooms.items() if room.is_stale()]
+    for code in stale:
+        duel_rooms.pop(code, None)
+
+
+@app.post("/api/duel/create")
+def create_duel(script: str = "en"):
+    _check_script(script)
+    _cleanup_stale_duel_rooms()
+    code = _gen_room_code()
+    while code in duel_rooms:
+        code = _gen_room_code()
+    duel_rooms[code] = DuelRoom(code, script)
+    return {"room": code}
+
+
+@app.websocket("/ws/duel/{room_code}")
+async def duel_socket(websocket: WebSocket, room_code: str):
+    room_code = room_code.upper()
+    room = duel_rooms.get(room_code)
+
+    if room is None:
+        await websocket.accept()
+        await websocket.send_json({"type": "error", "message": "Room not found — check the code, or create a new one."})
+        await websocket.close()
+        return
+
+    if len([p for p in room.players if p.connected]) >= 2:
+        await websocket.accept()
+        await websocket.send_json({"type": "error", "message": "That room already has two players."})
+        await websocket.close()
+        return
+
+    await websocket.accept()
+
+    try:
+        first = await websocket.receive_json()
+    except Exception:
+        await websocket.close()
+        return
+    name = (first.get("name") or "player").strip()[:20] or "player"
+
+    player = DuelPlayer(websocket, name)
+    room.players.append(player)
+    opponent = room.other(player)
+
+    if opponent is None:
+        await websocket.send_json({"type": "waiting"})
+    else:
+        # Room just became full: pick the shared text and a start time a
+        # few seconds out, and tell both players at once.
+        room.text = random.choice(DUEL_TEXTS[room.script])
+        room.start_at = (time.time() + 4.0) * 1000  # ms epoch, comparable to JS Date.now()
+        try:
+            await websocket.send_json({
+                "type": "start", "text": room.text, "startAt": room.start_at,
+                "opponentName": opponent.name,
+            })
+            await opponent.ws.send_json({
+                "type": "start", "text": room.text, "startAt": room.start_at,
+                "opponentName": player.name,
+            })
+        except Exception:
+            pass
+
+    try:
+        while True:
+            msg = await websocket.receive_json()
+            mtype = msg.get("type")
+            opponent = room.other(player)
+
+            if mtype == "progress":
+                if opponent and opponent.connected:
+                    try:
+                        await opponent.ws.send_json({
+                            "type": "opponent_progress",
+                            "percent": msg.get("percent", 0),
+                            "wpm": msg.get("wpm", 0),
+                        })
+                    except Exception:
+                        pass
+            elif mtype == "finished":
+                player.finished = True
+                player.final_wpm = msg.get("wpm", 0)
+                player.final_acc = msg.get("acc", 0)
+                if opponent and opponent.connected:
+                    try:
+                        await opponent.ws.send_json({
+                            "type": "opponent_finished",
+                            "wpm": player.final_wpm,
+                            "acc": player.final_acc,
+                        })
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+    finally:
+        player.connected = False
+        opponent = room.other(player)
+        if opponent and opponent.connected:
+            try:
+                await opponent.ws.send_json({"type": "opponent_left"})
+            except Exception:
+                pass
+        if not any(p.connected for p in room.players):
+            duel_rooms.pop(room_code, None)
