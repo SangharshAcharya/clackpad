@@ -1052,6 +1052,7 @@
           <div class="duel-progress-track"><div class="duel-progress-fill" id="duel-opponent-fill"></div></div>
         </div>
         <button class="key hidden" id="duel-leave-btn" data-i18n="duelLeave">leave room</button>
+        <div id="duel-leaderboard" class="mini-leaderboard hidden" style="flex-basis:100%;"></div>
       </div>
     </div>
     <div class="settings-row hidden" id="leaderboard-panel">
@@ -1059,6 +1060,7 @@
         <button class="key active" data-lbboard="daily" data-i18n="gameDaily">daily challenge</button>
         <button class="key" data-lbboard="speedtest" data-i18n="lbBoardSpeedtest">speed test</button>
         <button class="key" data-lbboard="ghost" data-i18n="gameGhost">ghost race</button>
+        <button class="key" data-lbboard="duel" data-i18n="gameDuel">duel</button>
         <button class="key" data-lbboard="all" data-i18n="lbBoardAll">all</button>
       </div>
       <div class="durations" role="group" aria-label="Leaderboard scope">
@@ -2413,8 +2415,11 @@
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: name, script: script, mode: modeVal, board: board, duration: durationVal, date: todayStr(0), wpm: wpm, acc: acc })
-    }).then(function () {
-      if (onSuccess) onSuccess();
+    }).then(function (r) {
+      // Only refresh on an actual 2xx — a rejected submission (e.g. the
+      // backend's wpm<=400 sanity cap) shouldn't be treated the same as a
+      // successful one just because fetch() itself didn't throw.
+      if (r.ok && onSuccess) onSuccess();
     }).catch(function () {});
   }
 
@@ -2540,6 +2545,11 @@
   // fixed mode value.
   var GHOST_MODE = 'words';
 
+  // Duel mode always uses the same short-sentence text style (see
+  // DUEL_TEXTS in backend/main.py) and has no mode selector of its own,
+  // same reasoning as ghost race above.
+  var DUEL_MODE = 'sentences';
+
   function refreshGhostLeaderboard() {
     var el = document.getElementById('ghost-leaderboard');
     if (!el) return;
@@ -2556,6 +2566,29 @@
         el.classList.remove('hidden');
         el.innerHTML =
           '<div class="mini-lb-section"><div class="free-reference-label">Today\u2019s ghost race leaderboard</div>' + renderLbRows(todayRows, me) + '</div>' +
+          '<div class="mini-lb-section"><div class="free-reference-label">All-time best</div>' + renderLbRows(allRows, me) + '</div>';
+      });
+    });
+  }
+
+  // Best WPM ever achieved in a duel — win or lose, every finished duel
+  // submits here, same as speedtest/ghost (this is not a win/loss tally).
+  function refreshDuelLeaderboard() {
+    var el = document.getElementById('duel-leaderboard');
+    if (!el) return;
+    if (!API_BASE) { el.classList.add('hidden'); el.innerHTML = ''; return; }
+    var me = getPlayerName();
+    fetchBoardLeaderboard('duel', gameScript, DUEL_MODE, 0, 'today', 10, function (todayRows, todayErr) {
+      fetchBoardLeaderboard('duel', gameScript, DUEL_MODE, 0, 'alltime', 10, function (allRows, allErr) {
+        if (todayErr && allErr) {
+          el.classList.remove('hidden');
+          el.innerHTML = '<div class="free-reference-label">' + t('leaderboardError') + '</div>';
+          return;
+        }
+        if (!todayRows.length && !allRows.length) { el.classList.add('hidden'); el.innerHTML = ''; return; }
+        el.classList.remove('hidden');
+        el.innerHTML =
+          '<div class="mini-lb-section"><div class="free-reference-label">Today\u2019s best duel WPM</div>' + renderLbRows(todayRows, me) + '</div>' +
           '<div class="mini-lb-section"><div class="free-reference-label">All-time best</div>' + renderLbRows(allRows, me) + '</div>';
       });
     });
@@ -2589,7 +2622,7 @@
       });
       return;
     }
-    var modeForFetch = lbBoard === 'ghost' ? GHOST_MODE : lbMode;
+    var modeForFetch = (lbBoard === 'ghost') ? GHOST_MODE : (lbBoard === 'duel') ? DUEL_MODE : lbMode;
     var durationForFetch = lbBoard === 'speedtest' ? lbDuration : 0;
     fetchBoardLeaderboard(lbBoard, lbScript, modeForFetch, durationForFetch, lbScope, 50, function (rows, errored) {
       renderFullLeaderboard(rows, false, errored);
@@ -2600,6 +2633,7 @@
     var modeLabel = row.mode === 'words' ? t('dailyModeWords') : row.mode === 'paragraph' ? t('dailyModeParagraph') : t('dailyModeSentences');
     if (row.board === 'daily') return t('gameDaily') + ' \u00B7 ' + modeLabel;
     if (row.board === 'ghost') return t('gameGhost');
+    if (row.board === 'duel') return t('gameDuel');
     return t('lbBoardSpeedtest') + ' \u00B7 ' + modeLabel + ' \u00B7 ' + row.duration + 's';
   }
 
@@ -2661,6 +2695,7 @@
     var lengthRow = document.getElementById('daily-length-row');
     var duelPanel = document.getElementById('duel-panel');
     var ghostLbEl = document.getElementById('ghost-leaderboard');
+    var duelLbEl = document.getElementById('duel-leaderboard');
     if (!el) return;
 
     if (gameMode !== 'duel' && duelSocket) duelLeaveRoom();
@@ -2674,6 +2709,7 @@
       if (nameRow) nameRow.classList.toggle('hidden', !API_BASE);
       if (lbEl) lbEl.classList.add('hidden');
       if (lengthRow) lengthRow.classList.add('hidden');
+      if (duelLbEl) { duelLbEl.classList.add('hidden'); duelLbEl.innerHTML = ''; }
       if (API_BASE) refreshGhostLeaderboard();
     } else if (gameMode === 'duel') {
       el.classList.add('hidden');
@@ -2684,11 +2720,16 @@
       // Only reset the connect UI if we're not already mid-connection/race —
       // renderGameInfo() can get called again just from re-clicking the
       // Games tab, and that shouldn't cancel an active duel.
-      if (!duelSocket && !duelRoomCode) { resetDuelPanel(); connectLobby(); }
+      if (!duelSocket && !duelRoomCode) {
+        resetDuelPanel();
+        connectLobby();
+        if (API_BASE) refreshDuelLeaderboard();
+      }
     } else {
       el.classList.remove('hidden');
       if (lengthRow) lengthRow.classList.remove('hidden');
       if (ghostLbEl) { ghostLbEl.classList.add('hidden'); ghostLbEl.innerHTML = ''; }
+      if (duelLbEl) { duelLbEl.classList.add('hidden'); duelLbEl.innerHTML = ''; }
       var existing = null;
       try { existing = JSON.parse(localStorage.getItem(dailyChallengeKey()) || 'null'); } catch (e) {}
       el.textContent = existing
@@ -2973,9 +3014,10 @@
     var localWpm = parseInt(document.getElementById('res-wpm').textContent, 10) || 0;
     var youWon = localWpm > duelOpponentFinalWpm;
     var tied = localWpm === duelOpponentFinalWpm;
-    setDuelStatus((tied ? 'Tied with ' : (youWon ? 'You beat ' : duelOpponentName + ' beat you \u2014 ')) +
-      (tied ? duelOpponentName : (youWon ? duelOpponentName : '')) +
-      '! You: ' + localWpm + ' wpm \u00b7 ' + duelOpponentName + ': ' + duelOpponentFinalWpm + ' wpm');
+    var headline = tied ? ('Tied with ' + duelOpponentName + '!')
+      : youWon ? ('You beat ' + duelOpponentName + '!')
+      : (duelOpponentName + ' beat you!');
+    setDuelStatus(headline + ' You: ' + localWpm + ' wpm \u00b7 ' + duelOpponentName + ': ' + duelOpponentFinalWpm + ' wpm');
   }
 
   // ---- Lobby: see who's online, invite them to a duel ----------------------
@@ -3729,6 +3771,7 @@
       } else if (gameMode === 'duel') {
         duelLocalFinished = true;
         duelSend({ type: 'finished', wpm: wpm, acc: acc });
+        submitBoardScore('duel', gameScript, DUEL_MODE, 0, wpm, acc, refreshDuelLeaderboard);
         if (duelOpponentFinished) {
           maybeShowDuelResult();
         } else {
@@ -4248,7 +4291,7 @@
     var durationRow = document.getElementById('lb-duration-row');
     if (!modeRow) return;
     var paragraphBtn = modeRow.querySelector('[data-lbmode="paragraph"]');
-    if (lbBoard === 'ghost' || lbBoard === 'all') {
+    if (lbBoard === 'ghost' || lbBoard === 'all' || lbBoard === 'duel') {
       modeRow.classList.add('hidden');
     } else {
       modeRow.classList.remove('hidden');
@@ -4267,6 +4310,7 @@
     var boardLabel = lbBoard === 'daily' ? t('gameDaily')
       : lbBoard === 'speedtest' ? t('lbBoardSpeedtest')
       : lbBoard === 'ghost' ? t('gameGhost')
+      : lbBoard === 'duel' ? t('gameDuel')
       : t('lbBoardAll');
     if (lbBoard === 'speedtest') boardLabel += ' (' + lbDuration + 's)';
     var scopeLabel = lbScope === 'alltime' ? t('lbScopeAllTime') : t('lbScopeToday');
