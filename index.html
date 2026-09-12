@@ -183,20 +183,27 @@
     color: var(--text);
   }
 
-  .kb-key.devanagari { font-size: 14px; position: relative; }
-  .kb-key { position: relative ; color: var(--muted) }
+  .kb-key.devanagari { font-size: 22px; position: relative; }
+  .kb-key { position: relative; }
   .kb-sub {
-    position: absolute;
-    top: 2px;
-    right: 4px;
-    font-size: 18px;
-    line-height: 1;
-    color: var(--text);
-    opacity: 0.8;
-    text-transform: uppercase;
-    font-family: 'IBM Plex Mono', monospace;
-  }
-  .kb-main { display: inline-block; }
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text);
+  opacity: 0.8;
+  text-transform: uppercase;
+  font-family: 'IBM Plex Mono', monospace;
+}
+  .kb-main {
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
 
   .weak-actions {
     display: flex;
@@ -396,6 +403,7 @@
   .duel-invite-banner .key { padding: 4px 12px; }
   #duel-invite-accept-btn { background: #7fb77e; color: #1b1d22; }
   #duel-invite-decline-btn { background: #d9534f; color: #fff; }
+  .duel-countdown-num { font-size: 1.5em; font-weight: 700; color: orange; }
   .duel-lobby-divider {
     display: flex;
     align-items: center;
@@ -2828,9 +2836,20 @@
     };
   }
 
+  // setDuelStatus() renders as HTML (so the countdown number can be its
+  // own styled span) — anything interpolated into it that came from
+  // another player (their name, in particular) has to be escaped first,
+  // or one player could put HTML/script markup in their name and have it
+  // render on their opponent's screen.
+  function escapeHtml(str) {
+    return String(str == null ? '' : str).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
   function setDuelStatus(text) {
     var els = duelElements();
-    if (els.status) els.status.textContent = text;
+    if (els.status) els.status.innerHTML = text;
   }
 
   // A thin marker on the shared paragraph itself, showing exactly where the
@@ -2981,7 +3000,7 @@
       removeOpponentMarker();
       maybeShowDuelResult();
     } else if (msg.type === 'opponent_left') {
-      setDuelStatus(duelOpponentName + ' disconnected.');
+      setDuelStatus(escapeHtml(duelOpponentName) + ' disconnected.');
       duelOpponentName = '';
       removeOpponentMarker();
     } else if (msg.type === 'error') {
@@ -2996,7 +3015,7 @@
     function tickCountdown() {
       var remaining = Math.ceil((duelStartAt - Date.now()) / 1000);
       if (remaining > 0) {
-        setDuelStatus('Racing ' + duelOpponentName + ' \u2014 starting in ' + remaining + '\u2026');
+        setDuelStatus('Racing ' + escapeHtml(duelOpponentName) + ' \u2014 starting in <span class="duel-countdown-num">' + remaining + '</span>\u2026');
       } else {
         clearInterval(duelCountdownInterval);
         duelCountdownInterval = null;
@@ -3026,7 +3045,7 @@
     var els = duelElements();
     if (els.youFill) els.youFill.style.width = '0%';
     if (els.youLabel) els.youLabel.textContent = 'You \u2014 0%';
-    setDuelStatus('Go! Racing ' + duelOpponentName + '.');
+    setDuelStatus('Go! Racing ' + escapeHtml(duelOpponentName) + '.');
     inputEl.focus();
   }
 
@@ -3038,7 +3057,7 @@
     var headline = tied ? ('Tied with ' + duelOpponentName + '!')
       : youWon ? ('You beat ' + duelOpponentName + '!')
       : (duelOpponentName + ' beat you!');
-    setDuelStatus(headline + ' You: ' + localWpm + ' wpm \u00b7 ' + duelOpponentName + ': ' + duelOpponentFinalWpm + ' wpm');
+    setDuelStatus(escapeHtml(headline) + ' You: ' + localWpm + ' wpm \u00b7 ' + escapeHtml(duelOpponentName) + ': ' + duelOpponentFinalWpm + ' wpm');
   }
 
   // ---- Lobby: see who's online, invite them to a duel ----------------------
@@ -3141,7 +3160,7 @@
     } else if (msg.type === 'invite_declined') {
       outgoingInviteToId = null;
       renderLobbyList();
-      setDuelStatus((msg.byName || 'They') + " declined \u2014 try someone else, or share a room code.");
+      setDuelStatus(escapeHtml(msg.byName || 'They') + " declined \u2014 try someone else, or share a room code.");
     } else if (msg.type === 'invite_failed') {
       outgoingInviteToId = null;
       renderLobbyList();
@@ -3796,7 +3815,7 @@
         if (duelOpponentFinished) {
           maybeShowDuelResult();
         } else {
-          setDuelStatus('Finished! You: ' + wpm + ' wpm, ' + acc + '% acc \u2014 waiting for ' + (duelOpponentName || 'your opponent') + ' to finish\u2026');
+          setDuelStatus('Finished! You: ' + wpm + ' wpm, ' + acc + '% acc \u2014 waiting for ' + escapeHtml(duelOpponentName || 'your opponent') + ' to finish\u2026');
         }
       }
       logSession(wpm, acc, 'games-' + gameMode, correctCount, consistency);
