@@ -19,8 +19,12 @@ challenge/ghost race don't have that axis at all.
 
 It also hosts Duel mode: live 1-v-1 races over a WebSocket
 (/ws/duel/{room_code}), matched via a short room code from
-POST /api/duel/create. Duel rooms are in-memory only, not stored in the
-database — see the "Duel mode" section below for how that works.
+POST /api/duel/create, plus a live Lobby (/ws/lobby) that lets people
+already on the site see who else is online right now and send/receive
+duel invites, instead of only being able to join via a manually-shared
+code. Both the lobby and duel rooms are in-memory only, not stored in
+the database — see the "Duel mode" / "Lobby" sections below for how
+that works.
 
 Everything else in Clackpad (streaks, lessons, badges, the ghost you race
 against) still lives in each browser's localStorage — the persistent (DB)
@@ -38,6 +42,7 @@ import os
 import random
 import sqlite3
 import time
+import uuid
 from contextlib import contextmanager
 from datetime import date
 from typing import Dict, List, Optional
@@ -491,3 +496,118 @@ async def duel_socket(websocket: WebSocket, room_code: str):
                 pass
         if not any(p.connected for p in room.players):
             duel_rooms.pop(room_code, None)
+
+
+# ---- Lobby: see who's online right now, invite them to a duel -------------
+# A second, separate WebSocket from the duel-room one above. Anyone sitting
+# on the Duel screen connects here and shows up in everyone else's online
+# list; from there they can send an invite, which — if accepted — creates a
+# normal duel room (same DuelRoom/duel_rooms machinery already used by the
+# room-code flow) and tells both browsers to connect to it. Nothing here is
+# persisted: closing the tab (or navigating away from Duel mode) removes you
+# from the list immediately, same as the duel rooms themselves.
+
+class LobbyPlayer:
+    def __init__(self, player_id: str, ws: WebSocket, name: str, script: str):
+        self.id = player_id
+        self.ws = ws
+        self.name = name
+        self.script = script
+
+
+lobby_players: Dict[str, LobbyPlayer] = {}
+
+
+async def _broadcast_lobby() -> None:
+    # Everyone gets the full online list minus themselves — sent
+    # individually since each recipient's list is different.
+    for pid, viewer in list(lobby_players.items()):
+        others = [{"id": p.id, "name": p.name} for p in lobby_players.values() if p.id != pid]
+        try:
+            await viewer.ws.send_json({"type": "players", "players": others})
+        except Exception:
+            pass
+
+
+@app.websocket("/ws/lobby")
+async def lobby_socket(websocket: WebSocket):
+    await websocket.accept()
+
+    try:
+        first = await websocket.receive_json()
+    except Exception:
+        await websocket.close()
+        return
+
+    name = (first.get("name") or "player").strip()[:20] or "player"
+    script = first.get("script") if first.get("script") in SCRIPTS else "en"
+
+    player_id = uuid.uuid4().hex[:8]
+    player = LobbyPlayer(player_id, websocket, name, script)
+    lobby_players[player_id] = player
+
+    try:
+        await websocket.send_json({"type": "you", "id": player_id})
+    except Exception:
+        lobby_players.pop(player_id, None)
+        return
+
+    await _broadcast_lobby()
+
+    try:
+        while True:
+            msg = await websocket.receive_json()
+            mtype = msg.get("type")
+
+            if mtype == "invite":
+                target = lobby_players.get(msg.get("toId"))
+                if target is None:
+                    try:
+                        await websocket.send_json({
+                            "type": "invite_failed",
+                            "reason": "That player just left.",
+                        })
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        await target.ws.send_json({
+                            "type": "invite_received", "fromId": player_id, "fromName": name,
+                        })
+                    except Exception:
+                        pass
+
+            elif mtype == "decline":
+                inviter = lobby_players.get(msg.get("toId"))
+                if inviter is not None:
+                    try:
+                        await inviter.ws.send_json({"type": "invite_declined", "byName": name})
+                    except Exception:
+                        pass
+
+            elif mtype == "accept":
+                inviter = lobby_players.get(msg.get("fromId"))
+                if inviter is None:
+                    try:
+                        await websocket.send_json({
+                            "type": "invite_failed",
+                            "reason": "That player already left.",
+                        })
+                    except Exception:
+                        pass
+                    continue
+                _cleanup_stale_duel_rooms()
+                code = _gen_room_code()
+                while code in duel_rooms:
+                    code = _gen_room_code()
+                duel_rooms[code] = DuelRoom(code, inviter.script)
+                for socket in (inviter.ws, websocket):
+                    try:
+                        await socket.send_json({"type": "invite_accepted", "room": code})
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+    finally:
+        lobby_players.pop(player_id, None)
+        await _broadcast_lobby()
