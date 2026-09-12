@@ -461,6 +461,7 @@ async def duel_socket(websocket: WebSocket, room_code: str):
                         await opponent.ws.send_json({
                             "type": "opponent_progress",
                             "percent": msg.get("percent", 0),
+                            "index": msg.get("index", 0),
                             "wpm": msg.get("wpm", 0),
                         })
                     except Exception:
