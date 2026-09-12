@@ -338,12 +338,28 @@
     background: var(--accent);
     transition: width 0.25s ease-out;
   }
-  .duel-room-code {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 20px;
-    font-weight: 600;
-    letter-spacing: 0.12em;
-    color: var(--accent);
+  .duel-progress-fill.duel-progress-you { background: var(--correct); }
+
+  .opponent-marker {
+    position: absolute;
+    width: 3px;
+    border-radius: 2px;
+    background: var(--accent);
+    opacity: 0.75;
+    pointer-events: none;
+    transition: left 0.2s linear, top 0.2s linear;
+    z-index: 1;
+  }
+  .opponent-marker::after {
+    content: '';
+    position: absolute;
+    top: -6px;
+    left: -3px;
+    width: 9px;
+    height: 6px;
+    background: var(--accent);
+    border-radius: 2px 2px 0 0;
+    opacity: 0.9;
   }
   .lb-row-tagged { flex-wrap: wrap; align-items: baseline; }
   .lb-tag {
@@ -699,6 +715,7 @@
     outline: none;
     user-select: none;
     white-space: pre-wrap;
+    position: relative;
   }
 
   .stage.blurred { filter: blur(3px); opacity: 0.5; }
@@ -975,6 +992,8 @@
         </div>
         <div class="drill-target" id="duel-status"></div>
         <div class="duel-progress-wrap hidden" id="duel-progress-wrap">
+          <div class="duel-progress-label" id="duel-you-label">You — 0%</div>
+          <div class="duel-progress-track"><div class="duel-progress-fill duel-progress-you" id="duel-you-fill"></div></div>
           <div class="duel-progress-label" id="duel-opponent-label"></div>
           <div class="duel-progress-track"><div class="duel-progress-fill" id="duel-opponent-fill"></div></div>
         </div>
@@ -2667,6 +2686,8 @@
       connectRow: document.getElementById('duel-connect-row'),
       status: document.getElementById('duel-status'),
       progressWrap: document.getElementById('duel-progress-wrap'),
+      youLabel: document.getElementById('duel-you-label'),
+      youFill: document.getElementById('duel-you-fill'),
       opponentLabel: document.getElementById('duel-opponent-label'),
       opponentFill: document.getElementById('duel-opponent-fill'),
       leaveBtn: document.getElementById('duel-leave-btn'),
@@ -2679,13 +2700,53 @@
     if (els.status) els.status.textContent = text;
   }
 
+  // A thin marker on the shared paragraph itself, showing exactly where the
+  // opponent currently is — separate from your own correct/incorrect letter
+  // coloring, which only ever reflects your own typing.
+  function removeOpponentMarker() {
+    var marker = document.getElementById('opponent-marker');
+    if (marker) marker.remove();
+  }
+
+  function updateOpponentMarker(index) {
+    if (!(currentTab === 'games' && gameMode === 'duel')) return;
+    if (!chars.length) return;
+    var marker = document.getElementById('opponent-marker');
+    if (!marker) {
+      marker = document.createElement('div');
+      marker.id = 'opponent-marker';
+      marker.className = 'opponent-marker';
+      stageEl.appendChild(marker);
+    }
+    var clamped = Math.max(0, Math.min(index, chars.length - 1));
+    var target = chars[clamped];
+    if (!target) return;
+    var stageRect = stageEl.getBoundingClientRect();
+    var targetRect = target.getBoundingClientRect();
+    marker.style.left = (targetRect.left - stageRect.left) + 'px';
+    marker.style.top = (targetRect.top - stageRect.top) + 'px';
+    marker.style.height = targetRect.height + 'px';
+  }
+
+  function updateOwnDuelProgress() {
+    if (!(currentTab === 'games' && gameMode === 'duel')) return;
+    var els = duelElements();
+    if (!els.youFill || !chars.length) return;
+    var percent = Math.round((typedIndex / chars.length) * 100);
+    els.youFill.style.width = percent + '%';
+    if (els.youLabel) els.youLabel.textContent = 'You \u2014 ' + percent + '%';
+  }
+
   function resetDuelPanel() {
     if (duelCountdownInterval) { clearInterval(duelCountdownInterval); duelCountdownInterval = null; }
     if (duelStartTimer) { clearTimeout(duelStartTimer); duelStartTimer = null; }
+    removeOpponentMarker();
     var els = duelElements();
     if (els.connectRow) els.connectRow.classList.remove('hidden');
     if (els.progressWrap) els.progressWrap.classList.add('hidden');
     if (els.leaveBtn) els.leaveBtn.classList.add('hidden');
+    if (els.youFill) els.youFill.style.width = '0%';
+    if (els.youLabel) els.youLabel.textContent = 'You \u2014 0%';
     setDuelStatus(API_BASE ? 'Create a room and share the code, or join one.' : 'Duel mode needs the online leaderboard connection to be configured.');
   }
 
@@ -2700,6 +2761,7 @@
     duelStartAt = 0;
     duelLocalFinished = false;
     duelOpponentFinished = false;
+    removeOpponentMarker();
     if (currentTab === 'games' && gameMode === 'duel') resetDuelPanel();
   }
 
@@ -2773,16 +2835,19 @@
     } else if (msg.type === 'opponent_progress') {
       if (els.opponentFill) els.opponentFill.style.width = Math.max(0, Math.min(100, msg.percent || 0)) + '%';
       if (els.opponentLabel) els.opponentLabel.textContent = duelOpponentName + ' \u2014 ' + (msg.percent || 0) + '% (' + (msg.wpm || 0) + ' wpm)';
+      updateOpponentMarker(msg.index || 0);
     } else if (msg.type === 'opponent_finished') {
       duelOpponentFinished = true;
       duelOpponentFinalWpm = msg.wpm || 0;
       duelOpponentFinalAcc = msg.acc || 0;
       if (els.opponentFill) els.opponentFill.style.width = '100%';
       if (els.opponentLabel) els.opponentLabel.textContent = duelOpponentName + ' finished \u2014 ' + duelOpponentFinalWpm + ' wpm, ' + duelOpponentFinalAcc + '% acc';
+      removeOpponentMarker();
       maybeShowDuelResult();
     } else if (msg.type === 'opponent_left') {
       setDuelStatus(duelOpponentName + ' disconnected.');
       duelOpponentName = '';
+      removeOpponentMarker();
     } else if (msg.type === 'error') {
       setDuelStatus(msg.message || 'Something went wrong.');
       if (duelSocket) { try { duelSocket.close(); } catch (e) {} duelSocket = null; }
@@ -2817,11 +2882,14 @@
     statWpm.textContent = '0';
     statAcc.textContent = '100%';
     document.getElementById('stat-best').textContent = '\u2014';
-    renderText(duelText);
+    renderText(duelText); // clears #stage, which also removes any leftover opponent marker
     updateKeyboardTargets([]);
     promptState = 'default';
     refreshPromptText();
     promptEl.style.display = 'flex';
+    var els = duelElements();
+    if (els.youFill) els.youFill.style.width = '0%';
+    if (els.youLabel) els.youLabel.textContent = 'You \u2014 0%';
     setDuelStatus('Go! Racing ' + duelOpponentName + '.');
     inputEl.focus();
   }
@@ -3348,6 +3416,7 @@
     if (chars[oldIndex]) chars[oldIndex].classList.remove('current');
     if (chars[newIndex]) chars[newIndex].classList.add('current');
     applyBlindVisibility();
+    updateOwnDuelProgress();
   }
 
   function tick() {
@@ -3394,7 +3463,7 @@
 
       if (currentTab === 'games' && gameMode === 'duel' && duelSocket) {
         var duelPercent = chars.length ? Math.round((typedIndex / chars.length) * 100) : 0;
-        duelSend({ type: 'progress', percent: duelPercent, wpm: wpm });
+        duelSend({ type: 'progress', percent: duelPercent, index: typedIndex, wpm: wpm });
       }
     }
 
