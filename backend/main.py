@@ -1,12 +1,13 @@
 """
 Clackpad leaderboard backend.
 
-A tiny FastAPI service that stores best typing scores for Clackpad's three
+A tiny FastAPI service that stores best typing scores for Clackpad's four
 online-leaderboard features:
 
   - "daily"     the daily challenge (one official attempt per person/day)
   - "speedtest" the speed test tab (unlimited practice)
   - "ghost"     ghost race mode
+  - "duel"      best WPM achieved in a live 1-v-1 duel (see below)
 
 For each (name, script, mode, board, duration) combination we track two things:
   - the best score *for a given date* (a "daily" board, reset each day)
@@ -65,7 +66,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-BOARDS = ("daily", "speedtest", "ghost")
+BOARDS = ("daily", "speedtest", "ghost", "duel")
 MODES = ("words", "sentences", "paragraph")
 SCRIPTS = ("en", "ne")
 
