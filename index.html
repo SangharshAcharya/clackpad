@@ -401,6 +401,8 @@
     font-family: 'IBM Plex Mono', monospace;
     font-size: 13px;
   }
+  .lobby-row-name { cursor: pointer; flex: 1; }
+  .lobby-row-name:hover { color: var(--accent); }
   .duel-lobby-row .key { padding: 3px 10px; font-size: 12px; background: #e8c34a; color: #1b1d22; }
 
   /* Old-Facebook-style "who's online" sidebar: a small tab docked to the
@@ -481,18 +483,130 @@
   @media (max-width: 560px) {
     .online-sidebar { right: 10px; width: 200px; }
   }
-  .duel-invite-banner {
+
+  /* Old-Facebook-style pop-up chat windows, docked along the bottom of the
+     screen to the left of the online sidebar, stacking further left as more
+     get opened. */
+  .chat-window {
+    position: fixed;
+    bottom: 0;
+    width: 200px;
+    height: 260px;
+    background: var(--surface);
+    border: 1px solid var(--muted-2);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.25);
+    z-index: 45;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  .chat-window.minimized { height: auto; }
+  .chat-window.minimized .chat-window-messages,
+  .chat-window.minimized .chat-window-inputrow { display: none; }
+
+  .chat-window-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 10px;
+    background: var(--accent);
+    color: var(--accent-text, #1b1d22);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+  }
+  .chat-window-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chat-window-close {
+    font-size: 15px;
+    line-height: 1;
+    padding: 0 2px;
+  }
+  .chat-window-close:hover { opacity: 0.7; }
+
+  .chat-window-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .chat-msg {
+    font-size: 12px;
+    line-height: 1.4;
+    max-width: 90%;
+    padding: 5px 8px;
+    border-radius: 8px;
+    word-wrap: break-word;
+  }
+  .chat-msg.mine {
+    align-self: flex-end;
+    background: var(--accent-dim);
+    color: var(--text);
+  }
+  .chat-msg.theirs {
+    align-self: flex-start;
+    background: var(--surface-2);
+    color: var(--text);
+  }
+  .chat-msg.system {
+    align-self: center;
+    background: transparent;
+    color: var(--muted);
+    font-style: italic;
+    font-size: 11px;
+  }
+
+  .chat-window-inputrow {
+    border-top: 1px solid var(--muted-2);
+    padding: 6px;
+  }
+  .chat-window-input {
+    width: 100%;
+    border: none;
+    background: transparent;
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    padding: 4px 6px;
+    outline: none;
+  }
+
+  @media (max-width: 700px) {
+    .chat-window { width: 160px; height: 220px; }
+  }
+  .duel-invite-toast {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    left: auto;
+    z-index: 60;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 10px;
+    gap: 12px;
     flex-wrap: wrap;
-    padding: 10px 12px;
+    max-width: calc(100vw - 40px);
+    padding: 12px 14px;
     border-radius: 8px;
     background: var(--surface-2);
     border: 1px solid var(--accent);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    color: var(--text);
+    animation: duelInviteIn 0.2s ease-out;
   }
-  .duel-invite-banner .key { padding: 4px 12px; }
+  .duel-invite-toast.hidden { display: none; }
+  .duel-invite-toast .key { padding: 4px 12px; }
+  @keyframes duelInviteIn {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
   #duel-invite-accept-btn { background: #7fb77e; color: #1b1d22; }
   #duel-invite-decline-btn { background: #d9534f; color: #fff; }
   .duel-countdown-num { font-size: 1.5em; font-weight: 700; color: orange; }
@@ -1155,13 +1269,6 @@
       <div id="daily-leaderboard" class="hidden"></div>
       <div id="ghost-leaderboard" class="mini-leaderboard hidden" style="flex-basis:100%;"></div>
       <div class="duel-panel hidden" id="duel-panel">
-        <div class="duel-invite-banner hidden" id="duel-invite-banner">
-          <span id="duel-invite-text"></span>
-          <span>
-            <button class="key" id="duel-invite-accept-btn" data-i18n="duelInviteAccept">accept</button>
-            <button class="key" id="duel-invite-decline-btn" data-i18n="duelInviteDecline">decline</button>
-          </span>
-        </div>
         <div class="duel-lobby-divider" data-i18n="duelLobbyOr">or use a room code</div>
         <div class="duel-connect" id="duel-connect-row">
           <button class="key" id="duel-create-btn" data-i18n="duelCreate">create room</button>
@@ -1346,6 +1453,14 @@
     <div class="duel-lobby-list" id="duel-lobby-list"></div>
     <div class="drill-target hidden" id="duel-lobby-empty" data-i18n="duelLobbyEmpty">Nobody else is online right now — share a room code below, or wait for a friend to open the app.</div>
   </div>
+</div>
+
+<div class="duel-invite-toast hidden" id="duel-invite-banner">
+  <span id="duel-invite-text"></span>
+  <span>
+    <button class="key" id="duel-invite-accept-btn" data-i18n="duelInviteAccept">accept</button>
+    <button class="key" id="duel-invite-decline-btn" data-i18n="duelInviteDecline">decline</button>
+  </span>
 </div>
 
 <script>
@@ -1650,10 +1765,13 @@
   var duelOpponentFinalAcc = 0;
 
   // Lobby (who's online right now, invite-to-duel) — a separate WebSocket
-  // from the duel room itself. See connectLobby()/handleLobbyMessage().
+  // from the duel room itself, and now connected app-wide (not just on the
+  // Duel screen) so the "online now" sidebar is visible everywhere. See
+  // connectLobby()/handleLobbyMessage().
   var lobbySocket = null;
   var lobbyId = null;
   var lobbyPlayers = [];
+  var lobbyReconnectTimer = null;
   var pendingInviteFromId = null;
   var pendingInviteFromName = '';
   var outgoingInviteToId = null;
@@ -1762,6 +1880,8 @@
     duelInviteDecline: { en: "decline", ne: "अस्वीकार गर्नुहोस्" },
     duelInvite: { en: "invite", ne: "आमन्त्रण" },
     duelInvited: { en: "invited\u2026", ne: "आमन्त्रित\u2026" },
+    duelChatTooltip: { en: "Click to chat", ne: "कुराकानी गर्न क्लिक गर्नुहोस्" },
+    duelChatPlaceholder: { en: "Type a message\u2026", ne: "सन्देश लेख्नुहोस्\u2026" },
     dailyModeWords: { en: "words", ne: "शब्दहरू" },
     dailyModeSentences: { en: "sentences", ne: "वाक्यहरू" },
     dailyModeParagraph: { en: "paragraph", ne: "अनुच्छेद" },
@@ -2839,7 +2959,6 @@
     if (!el) return;
 
     if (gameMode !== 'duel' && duelSocket) duelLeaveRoom();
-    if (gameMode !== 'duel' && lobbySocket) disconnectLobby();
     if (duelPanel) duelPanel.classList.toggle('hidden', gameMode !== 'duel');
 
     if (gameMode === 'ghost') {
@@ -3022,7 +3141,8 @@
     duelLocalFinished = false;
     duelOpponentFinished = false;
     removeOpponentMarker();
-    if (currentTab === 'games' && gameMode === 'duel') { resetDuelPanel(); connectLobby(); }
+    if (currentTab === 'games' && gameMode === 'duel') resetDuelPanel();
+    connectLobby();
   }
 
   function duelSend(obj) {
@@ -3190,6 +3310,7 @@
   function connectLobby() {
     var sidebar = document.getElementById('online-sidebar');
     if (lobbySocket) { if (sidebar) sidebar.classList.remove('hidden'); return; } // already connected/connecting
+    if (lobbyReconnectTimer) { clearTimeout(lobbyReconnectTimer); lobbyReconnectTimer = null; }
     var url = lobbyWsUrl();
     if (!url) return;
 
@@ -3207,12 +3328,32 @@
       handleLobbyMessage(msg);
     };
     socket.onclose = function () {
-      if (lobbySocket === socket) lobbySocket = null;
+      if (lobbySocket !== socket) return;
+      lobbySocket = null;
+      // The sidebar is meant to stay up for the whole session now (not just
+      // while sitting on the Duel screen), so a dropped connection — the
+      // free-tier backend sleeping, a flaky network — should quietly
+      // reconnect rather than leave the list frozen and stale. Skip this
+      // while an actual duel room is active; that flow reconnects the
+      // lobby itself once the room ends (see duelLeaveRoom()).
+      if (!duelSocket) lobbyReconnectTimer = setTimeout(connectLobby, 5000);
     };
     socket.onerror = function () {};
   }
 
+  // Closes the lobby connection without hiding the sidebar or clearing its
+  // reconnect behavior — used when the identity sent to the lobby (the
+  // player's name) changes and needs to be re-announced, not when actually
+  // leaving the lobby altogether. See disconnectLobby() for that.
+  function reconnectLobbyIdentity() {
+    if (!lobbySocket) return;
+    try { lobbySocket.onclose = null; lobbySocket.close(); } catch (e) {}
+    lobbySocket = null;
+    connectLobby();
+  }
+
   function disconnectLobby() {
+    if (lobbyReconnectTimer) { clearTimeout(lobbyReconnectTimer); lobbyReconnectTimer = null; }
     if (lobbySocket) {
       try { lobbySocket.onclose = null; lobbySocket.close(); } catch (e) {}
       lobbySocket = null;
@@ -3223,6 +3364,7 @@
     pendingInviteFromName = '';
     outgoingInviteToId = null;
     hideInviteBanner();
+    closeAllChatWindows();
     renderLobbyList();
     var sidebar = document.getElementById('online-sidebar');
     if (sidebar) sidebar.classList.add('hidden');
@@ -3255,10 +3397,96 @@
     listEl.innerHTML = lobbyPlayers.map(function (p) {
       var invited = outgoingInviteToId === p.id;
       return '<div class="duel-lobby-row">' +
-        '<span>' + p.name + '</span>' +
+        '<span class="lobby-row-name" data-chat-id="' + p.id + '" data-chat-name="' + escapeHtml(p.name) + '" title="' + t('duelChatTooltip') + '">' + escapeHtml(p.name) + '</span>' +
         '<button class="key" data-invite-id="' + p.id + '"' + (invited ? ' disabled' : '') + '>' +
         (invited ? t('duelInvited') : t('duelInvite')) + '</button></div>';
     }).join('');
+  }
+
+  // ---- Lobby chat (old-Facebook-style pop-up windows) ---------------------
+  // Plain text only, relayed peer-to-peer through the lobby socket — nothing
+  // is stored server-side, and history disappears once a window is closed
+  // or the page reloads, same as everything else about the lobby.
+  var openChats = {}; // id -> { name, el, messagesEl, inputEl }
+
+  function repositionChatWindows() {
+    var rightEdge = 260; // just left of the 230px-wide online sidebar (right:20 + width:230 + 10 gap)
+    var ids = Object.keys(openChats);
+    for (var i = 0; i < ids.length; i++) {
+      var win = openChats[ids[i]].el;
+      win.style.right = rightEdge + 'px';
+      rightEdge += win.offsetWidth + 10;
+    }
+  }
+
+  function openChatWindow(id, name) {
+    if (openChats[id]) {
+      openChats[id].el.classList.remove('minimized');
+      openChats[id].inputEl.focus();
+      return openChats[id];
+    }
+    var win = document.createElement('div');
+    win.className = 'chat-window';
+    win.innerHTML =
+      '<div class="chat-window-header" data-role="header">' +
+        '<span class="chat-window-name"></span>' +
+        '<span class="chat-window-close" data-role="close">\u00d7</span>' +
+      '</div>' +
+      '<div class="chat-window-messages"></div>' +
+      '<div class="chat-window-inputrow"><input type="text" class="chat-window-input" maxlength="500" autocomplete="off"></div>';
+    win.querySelector('.chat-window-name').textContent = name;
+    win.querySelector('.chat-window-input').setAttribute('placeholder', t('duelChatPlaceholder'));
+    document.body.appendChild(win);
+
+    var messagesEl = win.querySelector('.chat-window-messages');
+    var inputEl = win.querySelector('.chat-window-input');
+
+    win.querySelector('[data-role="close"]').addEventListener('click', function (e) {
+      e.stopPropagation();
+      closeChatWindow(id);
+    });
+    win.querySelector('[data-role="header"]').addEventListener('click', function () {
+      win.classList.toggle('minimized');
+    });
+    inputEl.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter') return;
+      var text = inputEl.value.trim();
+      if (!text) return;
+      sendChatMessage(id, text);
+      inputEl.value = '';
+    });
+
+    openChats[id] = { name: name, el: win, messagesEl: messagesEl, inputEl: inputEl };
+    repositionChatWindows();
+    inputEl.focus();
+    return openChats[id];
+  }
+
+  function closeChatWindow(id) {
+    var chat = openChats[id];
+    if (!chat) return;
+    chat.el.remove();
+    delete openChats[id];
+    repositionChatWindows();
+  }
+
+  function closeAllChatWindows() {
+    Object.keys(openChats).forEach(function (id) { closeChatWindow(id); });
+  }
+
+  function appendChatMessage(id, text, kind) {
+    var chat = openChats[id];
+    if (!chat) return;
+    var line = document.createElement('div');
+    line.className = 'chat-msg ' + kind; // 'mine' | 'theirs' | 'system'
+    line.textContent = text;
+    chat.messagesEl.appendChild(line);
+    chat.messagesEl.scrollTop = chat.messagesEl.scrollHeight;
+  }
+
+  function sendChatMessage(id, text) {
+    appendChatMessage(id, text, 'mine');
+    lobbySend({ type: 'chat', toId: id, text: text });
   }
 
   function handleLobbyMessage(msg) {
@@ -3279,10 +3507,22 @@
       outgoingInviteToId = null;
       renderLobbyList();
       setDuelStatus(msg.reason || 'Could not send that invite.');
+    } else if (msg.type === 'chat_received') {
+      var chat = openChats[msg.fromId] || openChatWindow(msg.fromId, msg.fromName || 'someone');
+      appendChatMessage(msg.fromId, msg.text || '', 'theirs');
+    } else if (msg.type === 'chat_failed') {
+      if (msg.toId && openChats[msg.toId]) appendChatMessage(msg.toId, msg.reason || 'Message not delivered.', 'system');
     } else if (msg.type === 'invite_accepted') {
       hideInviteBanner();
       pendingInviteFromId = null;
       outgoingInviteToId = null;
+      // The invite could've been accepted while sitting on a totally
+      // different tab — jump to Games > Duel so the countdown/race is
+      // actually visible instead of silently starting on a hidden screen.
+      var gamesTabBtn = document.querySelector('.tabs .key[data-tab="games"]');
+      if (gamesTabBtn && !gamesTabBtn.classList.contains('active')) gamesTabBtn.click();
+      var duelModeBtn = document.querySelector('#games-panel .key[data-game="duel"]');
+      if (duelModeBtn && !duelModeBtn.classList.contains('active')) duelModeBtn.click();
       connectDuelRoom(msg.room);
     }
   }
@@ -4388,7 +4628,6 @@
       var newTab = btn.getAttribute('data-tab');
       if (newTab !== 'games' && currentTab === 'games') {
         if (duelSocket || duelRoomCode) duelLeaveRoom();
-        if (lobbySocket) disconnectLobby();
       }
       currentTab = newTab;
       applyTabVisibility();
@@ -4582,12 +4821,19 @@
   var duelLobbyList = document.getElementById('duel-lobby-list');
   if (duelLobbyList) {
     duelLobbyList.addEventListener('click', function (e) {
-      var btn = e.target.closest('[data-invite-id]');
-      if (!btn || btn.disabled) return;
-      var toId = btn.getAttribute('data-invite-id');
-      outgoingInviteToId = toId;
-      renderLobbyList();
-      lobbySend({ type: 'invite', toId: toId });
+      var inviteBtn = e.target.closest('[data-invite-id]');
+      if (inviteBtn) {
+        if (inviteBtn.disabled) return;
+        var toId = inviteBtn.getAttribute('data-invite-id');
+        outgoingInviteToId = toId;
+        renderLobbyList();
+        lobbySend({ type: 'invite', toId: toId });
+        return;
+      }
+      var nameEl = e.target.closest('[data-chat-id]');
+      if (nameEl) {
+        openChatWindow(nameEl.getAttribute('data-chat-id'), nameEl.getAttribute('data-chat-name'));
+      }
     });
   }
 
@@ -4642,6 +4888,7 @@
     refreshSpeedLeaderboard();
     refreshGhostLeaderboard();
     refreshDuelLeaderboard();
+    reconnectLobbyIdentity();
   }
 
   // One name field, always visible in the header regardless of which tab
@@ -5164,6 +5411,12 @@
   renderFreeReference();
   updateStreak();
   inputEl.focus();
+
+  // Connect the "who's online" lobby right away, app-wide — not just when
+  // visiting the Duel screen — so the sidebar is available no matter which
+  // tab someone's actually using. It quietly does nothing if API_BASE isn't
+  // configured (no backend to connect to).
+  connectLobby();
 
   // Register the service worker (see sw.js) so the app can be installed
   // and works offline once it's been opened at least once. Registration
