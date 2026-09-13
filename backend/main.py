@@ -607,6 +607,30 @@ async def lobby_socket(websocket: WebSocket):
                         await socket.send_json({"type": "invite_accepted", "room": code})
                     except Exception:
                         pass
+
+            elif mtype == "chat":
+                # Plain text only, relayed as-is between two lobby members —
+                # nothing is stored server-side, same as everything else here.
+                text = (msg.get("text") or "").strip()[:500]
+                if not text:
+                    continue
+                target = lobby_players.get(msg.get("toId"))
+                if target is None:
+                    try:
+                        await websocket.send_json({
+                            "type": "chat_failed",
+                            "reason": "That player just left.",
+                            "toId": msg.get("toId"),
+                        })
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        await target.ws.send_json({
+                            "type": "chat_received", "fromId": player_id, "fromName": name, "text": text,
+                        })
+                    except Exception:
+                        pass
     except Exception:
         pass
     finally:
